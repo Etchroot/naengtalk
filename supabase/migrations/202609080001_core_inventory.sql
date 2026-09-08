@@ -72,6 +72,27 @@ alter table public.cooking_session_usage enable row level security;
 alter table public.completed_recipes enable row level security;
 alter table public.inventory_events enable row level security;
 
+revoke all on table
+  public.profiles,
+  public.inventory_lots,
+  public.recipes,
+  public.cooking_sessions,
+  public.cooking_session_usage,
+  public.completed_recipes,
+  public.inventory_events
+from anon, authenticated;
+
+grant select, insert, update, delete on table
+  public.profiles,
+  public.inventory_lots,
+  public.recipes,
+  public.cooking_sessions,
+  public.cooking_session_usage,
+  public.completed_recipes
+to authenticated;
+
+grant select, insert on table public.inventory_events to authenticated;
+
 create policy own_profiles on public.profiles for all using (user_id = auth.uid()) with check (user_id = auth.uid());
 create policy own_inventory on public.inventory_lots for all using (owner_id = auth.uid()) with check (owner_id = auth.uid());
 create policy own_recipes on public.recipes for all using (owner_id = auth.uid()) with check (owner_id = auth.uid());
