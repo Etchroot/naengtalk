@@ -41,6 +41,12 @@ import {
 } from "../domain/inventory-presentation.ts";
 import { getAndroidWebFrame } from "../domain/web-frame.ts";
 import { backendConfig } from "../services/backend-config.ts";
+import {
+  restoreRemoteSession,
+  signInGuest,
+  signOutSession,
+} from "../services/auth.ts";
+import { loadRemoteInventory } from "../services/remote-inventory.ts";
 import { color, s } from "./theme";
 
 const tabs = ["홈", "채팅", "재고", "레시피", "조리도구", "설정"];
@@ -131,6 +137,7 @@ export default function NaengTalk() {
   const [state, setState] = useState<LocalState>(fresh);
   const [ready, setReady] = useState(false);
   const [loggedIn, setLoggedIn] = useState(false);
+  const [authBusy, setAuthBusy] = useState(false);
   const [tab, setTab] = useState(0);
   const [detail, setDetail] = useState(false);
   const [review, setReview] = useState(false);
@@ -175,16 +182,40 @@ export default function NaengTalk() {
     [state.inventory, inventorySort],
   );
   useEffect(() => {
-    AsyncStorage.getItem("naengtalk-local-validation-v1")
-      .then((raw) => {
-        if (raw) {
-          const data = JSON.parse(raw);
-          setState(data.state);
-          setLoggedIn(data.loggedIn);
+    let active = true;
+    const initialize = async () => {
+      try {
+        const raw = await AsyncStorage.getItem("naengtalk-local-validation-v1");
+        const stored = raw ? JSON.parse(raw) : null;
+        if (active && stored?.state) setState(stored.state);
+
+        if (backendConfig.mode === "supabase") {
+          const hasSession = await restoreRemoteSession();
+          if (!active) return;
+          if (hasSession) {
+            const inventory = await loadRemoteInventory();
+            if (!active) return;
+            setState((current) => ({ ...current, inventory }));
+            setLoggedIn(true);
+          } else {
+            setLoggedIn(false);
+          }
+        } else if (active && stored) {
+          setLoggedIn(Boolean(stored.loggedIn));
         }
-      })
-      .catch(() => setError("로컬 저장 데이터를 읽지 못했습니다."))
-      .finally(() => setReady(true));
+      } catch {
+        if (active) {
+          setLoggedIn(false);
+          setError("로그인 상태를 확인하지 못했습니다. 다시 시도해주세요.");
+        }
+      } finally {
+        if (active) setReady(true);
+      }
+    };
+    void initialize();
+    return () => {
+      active = false;
+    };
   }, []);
   useEffect(() => {
     if (ready)
@@ -197,6 +228,39 @@ export default function NaengTalk() {
     const id = setInterval(() => setNow(Date.now()), 500);
     return () => clearInterval(id);
   }, []);
+  const handleGuestLogin = async () => {
+    if (authBusy) return;
+    setAuthBusy(true);
+    setError("");
+    try {
+      if (backendConfig.mode === "supabase") {
+        await signInGuest();
+        const inventory = await loadRemoteInventory();
+        setState((current) => ({ ...current, inventory }));
+      }
+      setLoggedIn(true);
+    } catch {
+      setLoggedIn(false);
+      setError("게스트 로그인에 실패했습니다. 잠시 후 다시 시도해주세요.");
+    } finally {
+      setAuthBusy(false);
+    }
+  };
+  const handleLogout = async () => {
+    if (authBusy) return;
+    setAuthBusy(true);
+    setError("");
+    try {
+      await signOutSession();
+      setState(fresh());
+      setLoggedIn(false);
+      setTab(0);
+    } catch {
+      setError("로그아웃하지 못했습니다. 다시 시도해주세요.");
+    } finally {
+      setAuthBusy(false);
+    }
+  };
   const openRecipe = () => {
     setSession(`local-${Date.now()}-${Math.random()}`);
     setError("");
@@ -277,8 +341,8 @@ export default function NaengTalk() {
             <Text style={[s.title, { fontSize: 38 }]}>냉톡</Text>
             <Text style={s.text}>대화로 관리하는 냉장고와 레시피</Text>
             <View style={{ height: 28 }} />
-            <Button onPress={() => setLoggedIn(true)}>
-              게스트 로그인(심사)
+            <Button onPress={() => void handleGuestLogin()}>
+              {authBusy ? "로그인 중…" : "게스트 로그인(심사)"}
             </Button>
             <Button
               secondary
@@ -291,7 +355,7 @@ export default function NaengTalk() {
               <Text style={s.muted}>
                 {backendConfig.mode === "local"
                   ? "개발 검증 모드입니다. 현재 게스트 버튼은 기기 내 샘플을 열며 실제 익명 인증·AI는 아직 연결되지 않았습니다."
-                  : "Supabase 연결 설정이 감지되었습니다. 다음 단계에서 실제 익명 로그인과 원격 재고를 활성화합니다."}
+                  : "게스트마다 독립된 원격 재고를 생성하고 로그인 상태를 안전하게 복원합니다."}
               </Text>
             <Text style={{ color: "#a94232" }}>{error}</Text>
           </View>
@@ -325,7 +389,7 @@ export default function NaengTalk() {
           <Text style={s.muted}>
             {backendConfig.mode === "local"
               ? "로컬 개발 검증 · AI / 클라우드 미연결"
-              : "Supabase 연결 준비됨 · 원격 데이터 전환 대기"}
+              : "게스트 원격 재고 연결됨 · AI 연결 대기"}
           </Text>
             </View>
             {timer}
@@ -567,12 +631,9 @@ export default function NaengTalk() {
                   </Button>
                   <Button
                     secondary
-                    onPress={() => {
-                      setLoggedIn(false);
-                      setTab(0);
-                    }}
+                    onPress={() => void handleLogout()}
                   >
-                    로그아웃
+                    {authBusy ? "로그아웃 중…" : "로그아웃"}
                   </Button>
                 </>
               )}
