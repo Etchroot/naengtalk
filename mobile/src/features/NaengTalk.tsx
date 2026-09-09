@@ -47,6 +47,7 @@ import {
   signOutSession,
 } from "../services/auth.ts";
 import { loadRemoteInventory } from "../services/remote-inventory.ts";
+import { completeRemoteCooking } from "../services/remote-cooking.ts";
 import { color, s } from "./theme";
 
 const tabs = ["홈", "채팅", "재고", "레시피", "조리도구", "설정"];
@@ -89,6 +90,12 @@ const steps = [
     minutes: 0,
   },
 ];
+const recipeContent = {
+  servings: 1,
+  minutes: 20,
+  ingredients: usage,
+  steps,
+};
 type LocalState = CookingState & {
   providedAt: string;
   saved: boolean;
@@ -267,17 +274,43 @@ export default function NaengTalk() {
     setReview(false);
     setDetail(true);
   };
-  const finish = () => {
+  const finish = async () => {
     if (lock.current) return;
     lock.current = true;
+    setError("");
     try {
-      const result = completeCooking(state, session, usage);
-      setState({ ...state, ...result, saved: true });
+      if (backendConfig.mode === "supabase") {
+        await completeRemoteCooking({
+          title: "김치 두부찌개",
+          content: recipeContent,
+          usage,
+          requestKey: session,
+        });
+        const inventory = await loadRemoteInventory();
+        setState((current) => ({
+          ...current,
+          inventory,
+          saved: true,
+          completedSessionIds: current.completedSessionIds.includes(session)
+            ? current.completedSessionIds
+            : [...current.completedSessionIds, session],
+        }));
+      } else {
+        const result = completeCooking(state, session, usage);
+        setState({ ...state, ...result, saved: true });
+      }
       setDetail(false);
       setReview(false);
       setTab(3);
     } catch (e) {
-      setError((e as Error).message);
+      const message = (e as Error).message;
+      setError(
+        message.includes("insufficient inventory")
+          ? "재고가 부족합니다. 구매하거나 사용량을 수정해주세요."
+          : backendConfig.mode === "supabase"
+            ? "요리 완료를 반영하지 못했습니다. 잠시 후 다시 시도해주세요."
+            : message,
+      );
     } finally {
       lock.current = false;
     }
@@ -760,7 +793,7 @@ export default function NaengTalk() {
                     <Text style={s.muted}>
                       확정하면 현재 재고에서 차감합니다.
                     </Text>
-                    <Button onPress={finish}>사용량 확정</Button>
+                    <Button onPress={() => void finish()}>사용량 확정</Button>
                   </View>
                 )}
                 {error ? (
