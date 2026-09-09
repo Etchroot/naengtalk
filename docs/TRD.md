@@ -311,9 +311,9 @@ Android 세션은 OS가 보호하는 비밀 저장소를 사용하는 Expo 호�
 ### OpenAI 자격 증명과 과금 경계
 
 - ChatGPT Pro 구독과 OpenAI API 사용량은 별도이며, 냉톡의 GPT 호출 비용은 프로젝트의 OpenAI API 결제 계정에 청구된다.
-- `OPENAI_API_KEY`는 실제 API 연동이 시작되는 시점에 사용자가 발급·등록한다. 기획 단계와 API 호출 전 개발 단계에서는 키 없이 진행한다.
+- `OPENAI_API_KEY`는 사용자가 발급했으며 Supabase Edge Function secret으로만 등록한다. 등록 절차는 `docs/OPENAI_SETUP.md`를 따른다.
 - 키는 Supabase 프로젝트 secret으로만 저장하고 Expo 앱, 웹 번들, 저장소, 로그와 문서에 포함하지 않는다.
-- 게스트를 포함한 사용자별 rate limit, 요청당 출력 토큰·도구 호출 상한, 캐시와 앱 자체 사용량 한도를 적용한다.
+- 게스트를 포함해 사용자별 하루 30회의 원자적 rate limit을 DB 함수로 적용한다. 최근 대화 6개·메시지 500자, Luna 출력 500토큰, Terra 출력 1,800토큰, 28초 제한과 검색 실패 시 한 번의 fallback을 적용한다.
 
 ## 7. API 경계 초안
 
@@ -321,7 +321,7 @@ Android 세션은 OS가 보호하는 비밀 저장소를 사용하는 Expo 호�
 | --- | --- | --- |
 | 캡처 분석 요청 | Edge Function | MIME, 크기, 소유자, 요청 제한 |
 | 캡처 검수 확정 | DB RPC 또는 Edge Function | 스키마, 단위, 중복 요청 |
-| 채팅 전송 | Edge Function 스트리밍 | JWT, pantry 소유권, rate limit |
+| 채팅 전송 | `menu-chat` Edge Function JSON 응답 | JWT, pantry 소유권, rate limit, 구조화 출력 |
 | 재고 변경 확정 | DB RPC | 예상 버전, idempotency, 트랜잭션 |
 | 레시피 완료 | DB RPC 또는 Edge Function | proposal 소유권, 차감 가능량 |
 | 게스트 초기화 | Edge Function | 세션 격리, 남용 제한 |
@@ -380,7 +380,7 @@ Android 세션은 OS가 보호하는 비밀 저장소를 사용하는 Expo 호�
 - 모델 승격률과 작업별 토큰·지연·비용을 기록해 라우팅 기준을 조정한다.
 - 레시피 기본 데이터와 정규화 사전은 캐시 가능하게 설계한다.
 
-정량 지연·비용 한도는 모델과 배포 환경을 선택한 뒤 실제 측정값으로 갱신한다.
+10명 × 하루 3회 × 7일의 210회 사용은 2026-09-09 공식 모델·웹 검색 가격과 제한된 토큰·fallback 기준으로 약 `$7~15`를 예상한다. OpenAI 월 사용 한도는 사용자가 `$20`로 설정했으며, 실제 배포 후 Usage의 Terra 비율·검색 호출·토큰으로 갱신한다.
 
 ## 12. 테스트 전략
 

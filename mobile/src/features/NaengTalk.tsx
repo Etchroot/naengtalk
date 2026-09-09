@@ -1,6 +1,7 @@
 import React, { useEffect, useMemo, useRef, useState } from "react";
 import {
   Modal,
+  Linking,
   Platform,
   Pressable,
   ScrollView,
@@ -36,6 +37,12 @@ import {
 } from "../domain/home-layout.ts";
 import { formatCookingStepTitle } from "../domain/recipe-presentation.ts";
 import {
+  recipeContextMessage,
+  recipeUsage,
+  type ChatMessage,
+  type MenuRecipe,
+} from "../domain/menu-chat.ts";
+import {
   sortInventory,
   type InventorySortMode,
 } from "../domain/inventory-presentation.ts";
@@ -48,6 +55,7 @@ import {
 } from "../services/auth.ts";
 import { loadRemoteInventory } from "../services/remote-inventory.ts";
 import { completeRemoteCooking } from "../services/remote-cooking.ts";
+import { sendMenuChat } from "../services/menu-chat.ts";
 import { color, s } from "./theme";
 
 const tabs = ["홈", "채팅", "재고", "레시피", "조리도구", "설정"];
@@ -67,12 +75,7 @@ const icons = [
   CookingPot,
   Settings,
 ];
-const usage = [
-  { ingredientId: "kimchi", quantity: 150, unit: "g" },
-  { ingredientId: "tofu", quantity: 100, unit: "g" },
-  { ingredientId: "soy", quantity: 5, unit: "ml" },
-];
-const steps = [
+const sampleSteps = [
   {
     text: "김치 150g과 두부 100g을 먹기 좋은 크기로 잘라주세요. 사용 전 포장 표시와 보관 상태를 확인해주세요.",
     minutes: 0,
@@ -90,17 +93,29 @@ const steps = [
     minutes: 0,
   },
 ];
-const recipeContent = {
+const sampleRecipe: MenuRecipe = {
+  title: "김치 두부찌개",
+  reason: "두부를 먼저 사용하면서 추가 구매 없이 만들 수 있어요.",
   servings: 1,
   minutes: 20,
-  ingredients: usage,
-  steps,
+  difficulty: "쉬움",
+  ingredients: [
+    { ingredientKey: "kimchi", name: "김치", quantity: 150, unit: "g", inInventory: true, requiredPurchase: false },
+    { ingredientKey: "tofu", name: "두부", quantity: 100, unit: "g", inInventory: true, requiredPurchase: false },
+    { ingredientKey: "soy", name: "간장", quantity: 5, unit: "ml", inInventory: true, requiredPurchase: false },
+    { ingredientKey: null, name: "물", quantity: 350, unit: "ml", inInventory: false, requiredPurchase: false },
+  ],
+  steps: sampleSteps,
+  sources: [],
 };
 type LocalState = CookingState & {
   providedAt: string;
   saved: boolean;
   tools: string[];
+  allergens: string[];
   timer: { label: string; endsAt: number } | null;
+  chat: ChatMessage[];
+  recipe: MenuRecipe | null;
 };
 function fresh(): LocalState {
   const date = new Date().toISOString().slice(0, 10);
@@ -115,7 +130,10 @@ function fresh(): LocalState {
       "전자레인지",
       "1인용 에어프라이기",
     ],
+    allergens: ["새우"],
     timer: null,
+    chat: [],
+    recipe: backendConfig.mode === "local" ? sampleRecipe : null,
   };
 }
 function Button({
@@ -152,7 +170,7 @@ export default function NaengTalk() {
   const [registration, setRegistration] = useState(false);
   const [direct, setDirect] = useState(false);
   const [input, setInput] = useState("");
-  const [message, setMessage] = useState("");
+  const [aiBusy, setAiBusy] = useState(false);
   const [now, setNow] = useState(Date.now());
   const [error, setError] = useState("");
   const [inventorySort, setInventorySort] =
@@ -194,7 +212,7 @@ export default function NaengTalk() {
       try {
         const raw = await AsyncStorage.getItem("naengtalk-local-validation-v1");
         const stored = raw ? JSON.parse(raw) : null;
-        if (active && stored?.state) setState(stored.state);
+        if (active && stored?.state) setState({ ...fresh(), ...stored.state });
 
         if (backendConfig.mode === "supabase") {
           const hasSession = await restoreRemoteSession();
@@ -269,20 +287,69 @@ export default function NaengTalk() {
     }
   };
   const openRecipe = () => {
+    if (!state.recipe) return;
     setSession(`local-${Date.now()}-${Math.random()}`);
     setError("");
     setReview(false);
     setDetail(true);
+  };
+  const handleSendChat = async () => {
+    if (aiBusy || !input.trim()) return;
+    const outgoing = input.trim();
+    const previousHistory = state.chat;
+    const userMessage: ChatMessage = { role: "user", content: outgoing };
+    setInput("");
+    setError("");
+    setAiBusy(true);
+    setState((current) => ({ ...current, chat: [...current.chat, userMessage] }));
+    try {
+      if (backendConfig.mode === "local") {
+        const assistant: ChatMessage = {
+          role: "assistant",
+          content: "로컬 검증 모드에서는 김치 두부찌개 샘플을 보여드려요.",
+        };
+        setState((current) => ({
+          ...current,
+          chat: [...current.chat, assistant],
+          recipe: sampleRecipe,
+          providedAt: new Date().toISOString().slice(0, 10),
+        }));
+      } else {
+        const response = await sendMenuChat({
+          message: outgoing,
+          history: state.recipe
+            ? [...previousHistory, recipeContextMessage(state.recipe)]
+            : previousHistory,
+          cookingTools: state.tools,
+          allergens: state.allergens,
+        });
+        setState((current) => ({
+          ...current,
+          chat: [...current.chat, { role: "assistant", content: response.reply }],
+          recipe: response.recipe ?? current.recipe,
+          providedAt: response.recipe
+            ? new Date().toISOString().slice(0, 10)
+            : current.providedAt,
+        }));
+      }
+    } catch (e) {
+      setError((e as Error).message);
+    } finally {
+      setAiBusy(false);
+    }
   };
   const finish = async () => {
     if (lock.current) return;
     lock.current = true;
     setError("");
     try {
+      if (!state.recipe) throw new Error("완료할 레시피가 없습니다.");
+      const usage = recipeUsage(state.recipe);
+      if (!usage.length) throw new Error("재고에서 차감할 재료가 없습니다.");
       if (backendConfig.mode === "supabase") {
         await completeRemoteCooking({
-          title: "김치 두부찌개",
-          content: recipeContent,
+          title: state.recipe.title,
+          content: state.recipe,
           usage,
           requestKey: session,
         });
@@ -335,16 +402,18 @@ export default function NaengTalk() {
       </View>
     </View>
   );
-  const recipeCard = (
+  const activeRecipe = state.recipe ?? sampleRecipe;
+  const activeUsage = recipeUsage(activeRecipe);
+  const recipeCard = state.recipe && (
     <Pressable
       accessibilityRole="button"
-      accessibilityLabel="김치 두부찌개 상세 열기"
+      accessibilityLabel={`${state.recipe.title} 상세 열기`}
       onPress={openRecipe}
       style={s.card}
     >
       <View style={s.row}>
         <View style={{ flex: 1, gap: 8 }}>
-          <Text style={[s.title, { fontSize: 17 }]}>김치 두부찌개</Text>
+          <Text style={[s.title, { fontSize: 17 }]}>{state.recipe.title}</Text>
           <Text style={s.muted}>
             제공일 {state.providedAt.replaceAll("-", ". ")}
           </Text>
@@ -352,9 +421,9 @@ export default function NaengTalk() {
         <ChevronRight color={color.ink} size={22} />
       </View>
       <View style={s.row}>
-        <Text style={s.badge}>20분</Text>
-        <Text style={s.badge}>쉬움</Text>
-        <Text style={s.badge}>1인분</Text>
+        <Text style={s.badge}>{state.recipe.minutes}분</Text>
+        <Text style={s.badge}>{state.recipe.difficulty}</Text>
+        <Text style={s.badge}>{state.recipe.servings}인분</Text>
       </View>
     </Pressable>
   );
@@ -422,7 +491,7 @@ export default function NaengTalk() {
           <Text style={s.muted}>
             {backendConfig.mode === "local"
               ? "로컬 개발 검증 · AI / 클라우드 미연결"
-              : "게스트 원격 재고 연결됨 · AI 연결 대기"}
+              : "게스트 원격 재고 연결됨 · GPT 메뉴 상담"}
           </Text>
             </View>
             {timer}
@@ -518,21 +587,45 @@ export default function NaengTalk() {
                 <>
                   <View style={[s.card, { marginTop: 12 }]}>
                     <Text style={s.text}>
-                      오늘은 어떤 메뉴가 당기세요? 아래 샘플 레시피로 타이머와
-                      재고 차감을 검증할 수 있어요.
+                      오늘은 어떤 메뉴가 당기세요? 시간, 맛, 원하는 메뉴를 말하면
+                      현재 재고와 조리도구에 맞춰 한 가지를 추천해드려요.
                     </Text>
-                    <Button secondary onPress={openRecipe}>
-                      레시피 전체 보기
-                    </Button>
                   </View>
-                  {message ? (
-                    <View style={s.card}>
-                      <Text style={s.text}>{message}</Text>
-                      <Text style={s.muted}>
-                        AI 연결 전이므로 이 메시지에 대한 생성이나 재고 변경은
-                        실행하지 않았습니다.
+                  {state.chat.map((item, index) => (
+                    <View
+                      key={`${item.role}-${index}`}
+                      style={[
+                        s.card,
+                        item.role === "user"
+                          ? { backgroundColor: color.green, marginLeft: 42 }
+                          : { marginRight: 24 },
+                      ]}
+                    >
+                      <Text style={[s.text, item.role === "user" && { color: "white" }]}>
+                        {item.content}
                       </Text>
                     </View>
+                  ))}
+                  {aiBusy ? (
+                    <View style={[s.card, { marginRight: 24 }]}>
+                      <Text accessibilityLiveRegion="polite" style={s.muted}>
+                        냉장고와 레시피를 확인하고 있어요…
+                      </Text>
+                    </View>
+                  ) : null}
+                  {state.recipe ? (
+                    <View style={[s.card, { backgroundColor: color.soft }]}>
+                      <Text style={s.title}>{state.recipe.title}</Text>
+                      <Text style={s.text}>{state.recipe.reason}</Text>
+                      <Button secondary onPress={openRecipe}>
+                        레시피 전체 보기
+                      </Button>
+                    </View>
+                  ) : null}
+                  {error ? (
+                    <Text accessibilityRole="alert" style={{ color: "#a94232" }}>
+                      {error}
+                    </Text>
                   ) : null}
                 </>
               )}
@@ -647,11 +740,44 @@ export default function NaengTalk() {
                 <>
                   <View style={s.card}>
                     <Text style={s.title}>알레르기 항목</Text>
-                    <Text style={s.text}>새우</Text>
                     <Text style={s.muted}>
-                      게스트 샘플 기본값입니다. 알레르기 편집·레시피 검증은 다음
-                      서버 연동 단계에서 활성화합니다.
+                      등록된 항목은 레시피를 만들기 전에 AI와 안전 검사에서 확인합니다.
                     </Text>
+                    <TextInput
+                      style={s.input}
+                      accessibilityLabel="알레르기 항목"
+                      placeholder="예: 새우"
+                      value={input}
+                      onChangeText={setInput}
+                    />
+                    <Button
+                      onPress={() => {
+                        const allergen = input.trim();
+                        if (allergen && !state.allergens.includes(allergen)) {
+                          setState({ ...state, allergens: [...state.allergens, allergen] });
+                          setInput("");
+                        }
+                      }}
+                    >
+                      알레르기 등록
+                    </Button>
+                    {state.allergens.length ? state.allergens.map((allergen) => (
+                      <View key={allergen} style={s.row}>
+                        <Text style={[s.text, { flex: 1 }]}>{allergen}</Text>
+                        <Pressable
+                          accessibilityRole="button"
+                          accessibilityLabel={`${allergen} 알레르기 삭제`}
+                          onPress={() => setState({
+                            ...state,
+                            allergens: state.allergens.filter((item) => item !== allergen),
+                          })}
+                        >
+                          <Text style={s.muted}>삭제</Text>
+                        </Pressable>
+                      </View>
+                    )) : (
+                      <Text style={s.text}>등록된 알레르기 없음</Text>
+                    )}
                   </View>
                   <Button
                     secondary
@@ -678,16 +804,11 @@ export default function NaengTalk() {
                   placeholder="먹고 싶은 메뉴를 말해보세요"
                   value={input}
                   onChangeText={setInput}
+                  editable={!aiBusy}
+                  onSubmitEditing={() => void handleSendChat()}
                 />
-                <Button
-                  onPress={() => {
-                    if (input.trim()) {
-                      setMessage(input);
-                      setInput("");
-                    }
-                  }}
-                >
-                  전송
+                <Button onPress={() => void handleSendChat()}>
+                  {aiBusy ? "답변 중…" : "전송"}
                 </Button>
               </View>
             )}
@@ -731,7 +852,7 @@ export default function NaengTalk() {
           <View style={s.stage}>
             <SafeAreaView style={appFrameStyle}>
               <View style={s.header}>
-                <Text style={s.title}>김치 두부찌개</Text>
+                <Text style={s.title}>{activeRecipe.title}</Text>
               </View>
               {timer}
               <ScrollView
@@ -741,18 +862,22 @@ export default function NaengTalk() {
                 contentContainerStyle={s.content}
               >
                 <Text style={s.muted}>
-                  제공일 {state.providedAt.replaceAll("-", ". ")} · 1인분 · 20분
+                  제공일 {state.providedAt.replaceAll("-", ". ")} · {activeRecipe.servings}인분 · {activeRecipe.minutes}분
                 </Text>
-                <Text style={s.badge}>
-                  동작 검증용 샘플 레시피 · AI 생성 아님
-                </Text>
+                <Text style={s.badge}>{activeRecipe.difficulty} · {activeRecipe.reason}</Text>
                 <View style={s.card}>
                   <Text style={s.title}>준비 재료</Text>
-                  <Text style={s.text}>
-                    김치 150g · 두부 100g · 간장 5ml · 물 350ml
-                  </Text>
+                  {activeRecipe.ingredients.map((ingredient, index) => (
+                    <Text key={`${ingredient.name}-${index}`} style={s.text}>
+                      {ingredient.name}
+                      {ingredient.quantity !== null && ingredient.unit
+                        ? ` ${ingredient.quantity}${ingredient.unit}`
+                        : ""}
+                      {ingredient.requiredPurchase ? " · 구매 필요" : ""}
+                    </Text>
+                  ))}
                 </View>
-                {steps.map((step, i) => (
+                {activeRecipe.steps.map((step, i) => (
                   <View style={s.card} key={i}>
                     <Text style={[s.title, { fontSize: 16 }]}>
                       {formatCookingStepTitle(i)}
@@ -776,10 +901,25 @@ export default function NaengTalk() {
                     )}
                   </View>
                 ))}
+                {activeRecipe.sources.length ? (
+                  <View style={s.card}>
+                    <Text style={s.title}>참고한 레시피</Text>
+                    {activeRecipe.sources.map((source, index) => (
+                      <Pressable
+                        accessibilityRole="link"
+                        key={`${source.url}-${index}`}
+                        onPress={() => void Linking.openURL(source.url)}
+                      >
+                        <Text style={[s.text, { color: color.green }]}>{source.title}</Text>
+                        <Text style={s.muted} numberOfLines={1}>{source.url}</Text>
+                      </Pressable>
+                    ))}
+                  </View>
+                ) : null}
                 {review && (
                   <View style={[s.card, { backgroundColor: color.soft }]}>
                     <Text style={s.title}>사용량을 확인해주세요</Text>
-                    {usage.map((line) => (
+                    {activeUsage.map((line) => (
                       <Text key={line.ingredientId} style={s.text}>
                         {
                           state.inventory.find(

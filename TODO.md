@@ -27,7 +27,8 @@
 | AI | 생성형 AI 제공자 선택 | OpenAI를 유일한 제공자로 사용하고 다른 생성형 AI fallback을 두지 않는 결정 기록 | 사용자·에이전트 | 완료 | 없음 |
 | AI | GPT 모델 조합 선정 | fast는 `gpt-5.6-luna`, quality는 `gpt-5.6-terra`로 문서화 | 사용자·에이전트 | 완료 | 없음 |
 | AI | GPT 평가 세트·승격 임계값 확정 | 구조화 정확도·한국어 레시피 품질·지연·비용을 측정하고 Luna→Terra 승격 임계값 기록 | 에이전트·사용자 | 대기 | API 연동 후 실제 평가 필요 |
-| AI | OpenAI API 키 등록 | 실제 Responses API 연동 시 서버 비밀값으로 등록하고 클라이언트·저장소 비노출 확인 | 사용자·에이전트 | 대기 | 개발 전환 및 API 연동 시점 |
+| AI | OpenAI API 키 등록 | 발급된 키를 Supabase `OPENAI_API_KEY` secret으로 저장하고 클라이언트·저장소 비노출 확인 | 사용자 | 진행 중 | Supabase Dashboard secret 저장 필요 |
+| AI | GPT 채팅·레시피 Edge Function | 인증·RLS 재고 조회·Luna/Terra 라우팅·만개의레시피 우선 검색·구조화 검증·하루 30회 제한 구현 및 실환경 호출 | 에이전트·사용자 | 진행 중 | 함수 배포와 secret 등록 후 1회 smoke test 필요 |
 | AI | 하이브리드 실행 구조 확정 | Android 온디바이스 OCR, 서버 결정적 검증, 클라우드 구조화·대화·검색·재설계 분리 | 사용자·에이전트 | 완료 | 없음 |
 | AI | 작업별 모델 라우팅 확정 | fast·quality 경로와 신뢰도 기반 요청당 최대 1회 승격 | 사용자·에이전트 | 완료 | 없음 |
 | 데이터 | 레시피 원천 우선순위 선정 | 만개의레시피 우선, YouTube·일반 웹 fallback과 출처 표시 정책 문서화 | 사용자·에이전트 | 완료 | 없음 |

@@ -53,11 +53,11 @@ Wanted AI Championship 2026 출품을 목표로 개발하고 있습니다.
 | Supabase 스키마·RLS·게스트 시드 migration | 원격 프로젝트 적용 및 사용자별 격리 검증 완료 |
 | Supabase 익명 로그인·원격 재고 | 로그인·10종 시드·세션 복원 연결 완료 |
 | Google 로그인 | OAuth 설정 후 연결 예정 |
-| GPT 대화·검색·레시피 재설계 | OpenAI API 서버 연동 예정 |
+| GPT 대화·검색·레시피 재설계 | 인증 Edge Function과 앱 연결 구현, secret 등록·실환경 호출 검증 대기 |
 | 구매내역 OCR | Android·웹 플랫폼별 구현 예정 |
 | Android APK·웹 배포 | 구현 완료 후 진행 예정 |
 
-현재 레시피는 핵심 동작을 검증하기 위한 샘플이며 생성형 AI 결과로 표시하지 않습니다. Supabase가 설정된 환경의 게스트 재고는 접속자별 익명 사용자에게 원격으로 생성·격리되며, 요리 완료 시 레시피·조리 세션·사용량·완료 기록과 재고 차감이 하나의 서버 트랜잭션으로 반영됩니다.
+Supabase가 설정된 환경의 게스트 재고는 접속자별 익명 사용자에게 원격으로 생성·격리됩니다. 채팅은 인증된 `menu-chat` Edge Function을 통해 GPT에 연결되며, 검증된 구조화 레시피만 화면과 차감 흐름에 전달합니다. 요리 완료 시 레시피·조리 세션·사용량·완료 기록과 재고 차감이 하나의 서버 트랜잭션으로 반영됩니다. OpenAI secret과 함수가 배포되지 않은 로컬 환경에서는 검증용 샘플 레시피를 사용합니다.
 
 ## AI 활용 방식
 
@@ -95,6 +95,7 @@ mobile/src/domain/      재고 차감·정렬·레이아웃 등 순수 도메인
 mobile/src/features/    냉톡 화면과 상호작용
 mobile/src/services/    Supabase 인증·세션·환경 설정 adapter
 supabase/migrations/    데이터베이스 스키마·RLS·서버 함수
+supabase/functions/     인증된 OpenAI Responses API Edge Function
 tests/                  도메인·설정·세션 회귀 테스트
 docs/                   기획서·PRD·TRD·결정 및 작업 규칙
 ```
@@ -143,6 +144,7 @@ node mobile/node_modules/typescript/bin/tsc --noEmit -p mobile/tsconfig.json
 - [사용자 개입 기록](HUMAN-IN-THE-ROOF.md)
 - [해커톤 규정 정리](docs/HACKATHON_RULES.md)
 - [제출서류 초안](SUBMISSION.md)
+- [OpenAI API 배포 설정](docs/OPENAI_SETUP.md)
 
 ## 라이선스
 
