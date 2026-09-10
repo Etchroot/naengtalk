@@ -15,7 +15,7 @@ export function sanitizePurchaseOcrRequest(input: unknown): PurchaseOcrRequest {
   const decodedBytes = Math.floor(match[2].length * 3 / 4) - padding;
   if (decodedBytes > MAX_IMAGE_BYTES) throw new Error('IMAGE_TOO_LARGE');
   const sampleId = raw.sampleId.trim().toUpperCase();
-  if (!/^R[1-5]$/.test(sampleId)) throw new Error('INVALID_IMAGE');
+  if (!/^(R[1-5]|UPLOAD)$/.test(sampleId)) throw new Error('INVALID_IMAGE');
   return { imageDataUrl: raw.imageDataUrl, sampleId };
 }
 

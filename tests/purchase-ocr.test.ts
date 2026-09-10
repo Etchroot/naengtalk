@@ -78,6 +78,10 @@ test('edge OCR request accepts JPEG data URLs and rejects invalid or over-5MB pa
     sanitizePurchaseOcrRequest({ imageDataUrl: 'data:image/jpeg;base64,QUJD', sampleId: 'R1' }),
     { imageDataUrl: 'data:image/jpeg;base64,QUJD', sampleId: 'R1' },
   );
+  assert.deepEqual(
+    sanitizePurchaseOcrRequest({ imageDataUrl: 'data:image/png;base64,QUJD', sampleId: 'UPLOAD' }),
+    { imageDataUrl: 'data:image/png;base64,QUJD', sampleId: 'UPLOAD' },
+  );
   assert.throws(
     () => sanitizePurchaseOcrRequest({ imageDataUrl: 'data:text/plain;base64,QUJD', sampleId: 'R1' }),
     /INVALID_IMAGE/,

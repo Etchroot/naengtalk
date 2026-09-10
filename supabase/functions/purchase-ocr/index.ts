@@ -2,6 +2,7 @@ import {
   buildPurchaseOcrOpenAiRequest,
   sanitizePurchaseOcrRequest,
 } from '../_shared/purchase-ocr-contract.ts';
+import { resolveShelfLifeForOcr } from '../_shared/shelf-life-resolver.ts';
 
 const corsHeaders = {
   'Access-Control-Allow-Origin': '*',
@@ -84,7 +85,17 @@ Deno.serve(async (request) => {
       return json(429, { error: '오늘의 구매내역 분석 횟수 10회를 모두 사용했습니다.' });
     }
 
-    return json(200, await recognizePurchase(input.imageDataUrl));
+    const recognized = await recognizePurchase(input.imageDataUrl);
+    const supabaseUrl = Deno.env.get('SUPABASE_URL');
+    const serviceRoleKey = Deno.env.get('SUPABASE_SERVICE_ROLE_KEY');
+    const openAiKey = Deno.env.get('OPENAI_API_KEY');
+    if (!supabaseUrl || !serviceRoleKey || !openAiKey) throw new Error('SERVER_CONFIG');
+    return json(200, await resolveShelfLifeForOcr(recognized, {
+      supabaseUrl,
+      serviceRoleKey,
+      openAiKey,
+      baseDate: new Date().toISOString().slice(0, 10),
+    }));
   } catch (error) {
     const code = (error as Error).message;
     if (code === 'INVALID_IMAGE' || error instanceof SyntaxError) {

@@ -63,7 +63,7 @@ AI 실행 구조는 하이브리드로 고정한다. Android와 웹은 구매내
 | `profiles` | `user_id`, `display_name`, `is_guest`, `preferences`, `demo_seed_version`, `last_active_at`, `expires_at` | 사용자와 게스트 속성, 데모 버전과 7일 비활성 정리 기준 |
 | `pantries` | `id`, `owner_id`, `name` | 사용자별 냉장고 경계 |
 | `ingredients` | `id`, `canonical_name`, `category`, `default_unit` | 정규화 재료 사전 |
-| `inventory_lots` | `id`, `pantry_id`, `ingredient_id`, `original_quantity`, `original_unit`, `normalized_quantity`, `normalized_unit`, `conversion_source`, `purchased_at`, `storage_location`, `package_state`, `state_changed_at`, `use_by_at`, `date_source`, `estimate_rule_id`, `status` | 원본·계산 단위와 날짜 산정 상태를 보존하는 구매 lot 재고 |
+| `inventory_lots` | `id`, `owner_id`, `ingredient_key`, `display_name`, `quantity`, `unit`, `use_by_at`, `date_source`, `import_resolution`, `internal_note`, `status` | 최종 승인한 재고와 자동·사용자 확인·사용자 수정 판정, 내부 감사 비고 |
 | `capture_jobs` | `id`, `owner_id`, `source_type`, `source_provider`, `image_path`, `ocr_text`, `status`, `expires_at` | 구매내역 처리 작업 |
 | `capture_items` | `id`, `job_id`, `raw_name`, `parsed_fields`, `field_confidences`, `review_status`, `included` | 필드별 신뢰도, 확인 상태와 등록 제외 여부를 가진 인식·검수 항목 |
 | `conversations` | `id`, `owner_id`, `summary`, `summary_window_started_at`, `created_at`, `last_activity_at` | 최근 30일 범위만 요약하고 빈 세션을 정리하는 대화 세션 |
@@ -81,7 +81,7 @@ AI 실행 구조는 하이브리드로 고정한다. Android와 웹은 구매내
 | `cooking_tools` | `id`, `owner_id`, `raw_label`, `normalized_type`, `capacity_value`, `capacity_unit`, `attributes`, `parse_confidence`, `created_at` | 사용자가 보유한 조리도구 |
 | `user_allergens` | `id`, `owner_id`, `raw_label`, `allergen_id`, `match_status`, `match_confidence`, `created_at` | 사용자가 실제로 등록한 알레르기 항목. 기본 행은 생성하지 않음 |
 | `allergens` | `id`, `canonical_name`, `aliases`, `derived_ingredients`, `source_ref`, `version` | 등록된 항목에 대해서만 최종 레시피 검사에 사용하는 내부 정규화·동의어 사전 |
-| `shelf_life_rules` | `id`, `ingredient_id`, `storage_location`, `package_state`, `duration_days`, `source_name`, `source_ref`, `source_version`, `effective_from` | 식약처·식품안전나라와 USDA FoodKeeper를 정규화한 버전 관리 권장 소진일 기준표 |
+| `shelf_life_rules` | `id`, `canonical_key`, `canonical_name`, `category`, `storage_method`, `package_state`, `duration_days`, `source_title`, `source_url`, `source_checked_at`, `evidence_type`, `confidence`, `status` | 정규화 재고명·보관·포장별 공용 권장 소진 기간 캐시. 인증 사용자는 활성 행만 읽고 서버만 쓴다. |
 
 ### 날짜 출처
 
@@ -94,10 +94,11 @@ UI는 `estimated`를 소비기한으로 표현하지 않고 `권장 소진일(�
 
 ### 날짜 계산
 
-- 날짜 파이프라인은 기존 OCR 텍스트에 날짜가 실제로 존재하는지만 확인하며, 상품별 표시일을 검색하거나 추론하기 위한 별도 AI 호출을 하지 않는다.
+- 날짜 파이프라인은 OCR 텍스트의 공식 표시일을 우선하고, 표시일이 없으면 `canonical_key + storage_method + package_state`로 공용 `shelf_life_rules`를 조회한다.
 - 계란·우유처럼 `date_entry_recommended`로 설정된 식재료는 검수 화면에서 공식 표시일 직접 입력을 유도한다. 사용자가 `지금은 모르겠어요`를 선택하면 등록은 허용하고 보수적 추정 규칙을 적용한다.
-- AI 구조화 결과는 식재료 ID, 냉장·냉동·실온 후보와 개봉 상태 후보까지만 제공한다.
-- 날짜 엔진은 `ingredient_id + storage_location + package_state`에 맞는 버전 관리 기준표를 조회하고 구매일 또는 상태 변경일에 보수적 일수를 더한다.
+- AI 구조화 결과는 정규화 식재료명, 식품군, 냉장·냉동·실온 후보와 개봉 상태 후보를 제공한다.
+- 활성 캐시가 없거나 `source_checked_at`이 365일 이상 지난 경우에만 서버가 `gpt-5.6-terra`의 제한된 `web_search`를 호출한다. 응답 URL이 도구가 실제 반환한 HTTPS 출처 목록에 포함되고 기간·신뢰도 검증을 통과할 때만 service role로 upsert한다.
+- 검색 실패 시 식품군별 짧은 fallback 기간을 사용하지만 해당 행은 `확인 필요`로 반환하고 공용 DB에는 저장하지 않는다.
 - 기준표는 식약처·식품안전나라의 국내 표시·보관 원칙을 우선하고, 개별 비포장 식재료의 냉장·냉동·실온 기간은 USDA FoodKeeper 공개 데이터를 보완 근거로 사용한다.
 - 원천이 기간 범위를 제공하면 `duration_days`에는 짧은 값을 저장한다. 각 규칙은 원천 URL·원천 버전·적용 보관 상태를 함께 기록하며, 참고값을 공식 소비기한으로 승격하지 않는다.
 - 육류·생선처럼 보관 상태가 불명확한 고위험 식품은 더 짧은 냉장 규칙을 기본값으로 사용한다.
@@ -118,18 +119,18 @@ UI는 `estimated`를 소비기한으로 표현하지 않고 `권장 소진일(�
 
 ### 구매내역 캡처
 
-1. 클라이언트가 이미지를 선택하고 개인정보 포함 가능성을 고지한다.
-2. 클라이언트는 5MB 이하의 JPEG·PNG·WebP를 data URL로 바꾸고 사용자 JWT와 함께 `purchase-ocr`에 전달한다.
-3. 함수는 JWT와 사용자별 `purchase_ocr` 하루 10회 원자적 카운터를 검증한다.
+1. 클라이언트가 번들 샘플을 복수 선택하거나 웹 파일 탐색기·Android 사진 보관함에서 최대 10장을 선택하고 개인정보 포함 가능성을 고지한다.
+2. 클라이언트는 각 5MB 이하의 JPEG·PNG·WebP를 data URL로 바꾸고 사용자 JWT와 함께 한 장씩 `purchase-ocr`에 순차 전달한다.
+3. 함수는 JWT와 이미지별 사용자 `purchase_ocr` 하루 10회 원자적 카운터를 검증한다.
 4. `gpt-5.6-luna`에 `detail: original`, reasoning `none`, `store:false`, strict JSON schema로 요청한다. 상품 썸네일 외형을 근거로 추측하지 않고 화면 텍스트만 전사하도록 지시한다.
 5. 모델은 원문, 재고용 식품명, 총량, 지원 단위, 식품군, 신뢰도, 검수 필요, 비식품 여부를 반환한다.
-6. 클라이언트는 허용 단위와 양수 수량을 다시 검증하고, 불확실·비식품 항목을 자동 등록에서 제외한다.
-7. 사용자가 확정하면 등록일과 식품군별 보수적 D+ 규칙으로 `estimated` 날짜를 계산해 현재 사용자 소유 `inventory_lots`에 저장한다.
-8. 규칙 엔진이 총용량, 단위, 재료 후보와 신뢰도를 검증한다.
-9. 서버가 필드별 신뢰도와 검증 결과를 반환하고, 클라이언트는 모든 품목을 한 화면에 자동 입력한다.
-10. 낮은 신뢰도, 단위 충돌, 총용량 계산 실패 필드는 `확인 필요`로 강조한다. 사용자는 품목 제외, 직접 수정 또는 채팅을 통한 사후 정정을 선택할 수 있다.
-11. 등록 시점에 확인 필요 필드가 남아 있으면 수정 또는 명시적 수락을 요구한다.
-12. 사용자가 마지막 `재고에 등록`을 누른 뒤에만 포함된 품목의 `inventory_lots`를 하나의 멱등성 있는 작업으로 생성한다.
+6. 서버는 비식품을 제외하고 정규화 재고명별 공용 소비기한 캐시를 조회한다. miss·stale만 제한된 웹 검색으로 보강하고, 검색 실패 fallback은 검수 대상으로 남긴다.
+7. 클라이언트는 허용 단위·양수 수량·실제 날짜를 다시 검증하고 여러 이미지의 중복 후보를 `확인 필요`로 표시한다.
+8. 서버가 필드별 신뢰도·내부 비고와 검증 결과를 반환하고, 클라이언트는 사용자에게 재고명·수량·권장 소진일만 수정 가능한 입력란으로 제시한다.
+9. 확인 필요 행은 최상단에 빨간 테두리로 정렬하고 상단 경고를 표시한다. 이후 이미지 분석 결과를 병합할 때 기존 `user_edited` 값은 보존한다.
+10. 이미지 일부가 실패해도 성공한 행과 수정값을 유지하고 실패 이미지만 오류 카드로 표시한다.
+11. 사용자가 마지막 `등록`을 누른 뒤에만 검증된 품목을 `register_inventory_import` RPC에 전달한다.
+12. RPC는 `auth.uid()` 소유권, 데이터 스키마와 idempotency key를 다시 검증하고 `inventory_events`와 `inventory_lots`를 하나의 작업으로 생성한다. 재시도된 동일 키는 중복 등록하지 않는다.
 13. Android·웹 원본은 Storage나 DB에 저장하지 않고 함수의 요청 메모리에서만 사용한다. 응답 또는 오류가 끝나면 서버가 유지하는 이미지 참조는 없다.
 
 부분 재분석은 품목과 필드 단위의 상태를 유지한다. 서버 응답을 병합할 때 `user_edited` 필드는 보존하고, 실패한 필드와 AI가 제안한 필드만 갱신한다.
@@ -356,7 +357,7 @@ Android 세션은 OS가 보호하는 비밀 저장소를 사용하는 Expo 호�
 | 구매내역 OCR | 인증된 OpenAI 비전 Edge Function | 인증된 OpenAI 비전 Edge Function |
 | 임박 알림 | 시스템 푸시·로컬 알림 | 앱 내 배너 |
 | 조리 타이머 | `AlarmClock.ACTION_SET_TIMER` Intent | 종료 시각 기반 앱 내부 타이머, 탭 전환 후 복원 |
-| 이미지 선택 | 네이티브 이미지 피커 | 파일 업로드 |
+| 이미지 선택 | 사진 보관함 다중 선택(최대 10장) | 파일 탐색기 다중 선택(최대 10장) |
 | 배포 | EAS 내부 배포 APK 공유 URL | EAS Hosting 심사용 공개 URL |
 
 ## 10. 오류 처리
@@ -373,7 +374,7 @@ Android 세션은 OS가 보호하는 비밀 저장소를 사용하는 Expo 호�
 ## 11. 성능·비용 목표 초안
 
 - 일반 재고 조회·수정은 AI 호출 없이 수행 가능한 경로를 둔다.
-- OCR과 상품 구조화 결과는 작업 단위로 재사용해 중복 호출을 줄인다.
+- OCR과 상품 구조화 결과는 현재 작업 상태에서 재사용해 중복 호출을 줄이고, 정규화 식품별 권장 기간은 공용 캐시로 재사용한다.
 - 채팅 첫 상태 피드백은 즉시 표시하고 긴 응답은 스트리밍한다.
 - 게스트와 사용자별 호출량 제한을 둔다.
 - 모델 승격률과 작업별 토큰·지연·비용을 기록해 라우팅 기준을 조정한다.

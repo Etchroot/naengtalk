@@ -17,6 +17,11 @@ export type PurchaseOcrItem = {
   needsReview: boolean;
   note: string | null;
   isFood: boolean;
+  recommendedUseBy: string | null;
+  shelfLifeStatus: 'cached' | 'fallback' | 'not_food' | null;
+  storageMethod: 'room_temperature' | 'refrigerated' | 'frozen' | null;
+  packageState: 'unopened' | 'opened' | 'unpackaged' | null;
+  internalNote: string | null;
 };
 
 export type PurchaseOcrResponse = { rawText: string; items: PurchaseOcrItem[] };
@@ -77,6 +82,19 @@ export function parsePurchaseOcrResponse(input: unknown): PurchaseOcrResponse {
       ? Math.max(0, Math.min(1, value.confidence))
       : 0;
     const note = text(value.note, 200) || null;
+    const recommendedUseBy = /^\d{4}-\d{2}-\d{2}$/.test(text(value.recommendedUseBy, 10))
+      ? text(value.recommendedUseBy, 10)
+      : null;
+    const shelfLifeStatus = ['cached', 'fallback', 'not_food'].includes(String(value.shelfLifeStatus))
+      ? value.shelfLifeStatus as PurchaseOcrItem['shelfLifeStatus']
+      : null;
+    const storageMethod = ['room_temperature', 'refrigerated', 'frozen'].includes(String(value.storageMethod))
+      ? value.storageMethod as PurchaseOcrItem['storageMethod']
+      : null;
+    const packageState = ['unopened', 'opened', 'unpackaged'].includes(String(value.packageState))
+      ? value.packageState as PurchaseOcrItem['packageState']
+      : null;
+    const internalNote = text(value.internalNote, 300) || note;
     const needsReview = value.needsReview === true || !quantity || !unit || confidence < 0.8;
 
     return [{
@@ -89,6 +107,11 @@ export function parsePurchaseOcrResponse(input: unknown): PurchaseOcrResponse {
       needsReview,
       note: needsReview && !note ? '수량·단위 또는 상품명을 확인해주세요.' : note,
       isFood: value.isFood === true,
+      recommendedUseBy,
+      shelfLifeStatus,
+      storageMethod,
+      packageState,
+      internalNote,
     }];
   });
 

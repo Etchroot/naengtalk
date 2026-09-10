@@ -1,9 +1,7 @@
-import type { ImageSourcePropType } from 'react-native';
-
 export type PurchaseDemoAsset = {
   id: 'R1' | 'R2' | 'R3' | 'R4' | 'R5';
   label: string;
-  source: ImageSourcePropType;
+  source: number;
 };
 
 export const purchaseDemoAssets: PurchaseDemoAsset[] = [
