@@ -13,8 +13,12 @@
 - Luna 비전 OCR, strict schema, 샘플 R1~R5·사용자 다중 이미지 검수와 재고 등록: 구현 완료
 - 소비기한 공용 캐시 우선 조회, miss·365일 stale에 한정한 Terra 웹 검색: 구현 완료
 - 구매내역 OCR 사용자별 하루 10회 서버 제한: migration 작성 완료
+- `OPENAI_API_KEY` Supabase secret 등록: 완료
+- `menu-chat`, `purchase-ocr` production 배포: 완료
+- production 웹 게스트 로그인·GPT 메뉴 응답: 실환경 확인 완료
+- R1 구매내역 OCR·편집형 검수 화면: 실환경 확인 완료
 
-## 사용자가 한 번만 할 작업
+## Secret 등록 절차
 
 1. Supabase Dashboard에서 `naengtalk` 프로젝트를 연다.
 2. 왼쪽의 **Edge Functions**로 이동해 **Secrets** 또는 **Manage secrets**를 연다.
@@ -48,6 +52,8 @@ GitHub 연동은 DB migration을 production branch에 적용하지만 Edge Funct
 9. `확인된 식품 재고에 등록` 후 현재 게스트 재고에만 새 lot이 추가되는지 확인한다.
 
 실제 OpenAI 호출을 포함한 이 확인은 비용이 발생하므로 API 배포 후 한 번만 수행하고, 전체 E2E는 웹 배포와 APK 빌드 직전에 수행한다.
+
+2026-09-10 production 웹에서 `계란을 사용해서 10분 안에 간단히 먹고 싶어` 요청이 원격 재고를 반영한 단일 레시피 후보로 응답하는 것을 확인했다. R1 OCR은 비식품을 제외하고 두부 300g·두부 800g·깻잎 무쌈 300g·양념깻잎 120g·상추 200g을 편집 가능한 검수 목록으로 반환했다. R2~R5와 공용 소비기한 cache hit/miss는 최종 OCR 비교 단계에서 확인한다.
 
 ## 비용·남용 방지 기준
 

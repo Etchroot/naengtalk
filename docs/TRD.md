@@ -430,7 +430,10 @@ Android 세션은 OS가 보호하는 비밀 저장소를 사용하는 Expo 호�
 
 - 개발·심사 환경을 분리한다.
 - Expo web export는 EAS Hosting production URL에 배포한다. 정적 웹 제공과 Supabase 백엔드는 사용자의 로컬 컴퓨터 전원·네트워크 상태에 의존하지 않는다.
+- production 웹 고정 주소는 `https://naengtalk.expo.app`이다. 웹 UI 변경은 새 export를 EAS Hosting production alias에 배포해 반영한다.
 - 별도 도메인은 MVP 의존성에 포함하지 않는다. EAS Hosting의 무료 `*.expo.app` production URL을 안정적인 공개 주소로 사용하고, 같은 배포의 `/install` 라우트가 웹 체험과 최신 EAS 내부 배포 APK로 연결되는 고정 진입점 역할을 한다. QR 코드는 변경 가능한 APK 공유 URL이 아니라 이 고정 라우트를 인코딩한다.
+- Android는 EAS Update의 `production` 채널과 `runtimeVersion.policy: appVersion`을 사용한다. 첫 APK 이후 JavaScript·스타일·번들 자산 변경은 동일 runtime에 OTA로 배포할 수 있지만, 네이티브 의존성·권한·앱 설정·네이티브 아이콘 변경은 새 Android 빌드가 필요하다.
+- 사용자 결정에 따라 웹을 먼저 배포해 실시간 UI를 검수하고, 디자인 확정 후 첫 내부 배포 APK를 빌드한다. EAS Update 설정만 먼저 완료하며 이 단계에서는 APK를 생성하지 않는다.
 - Supabase는 Auth·Postgres·Storage·Edge Functions를 담당하고 OpenAI 요청은 Edge Function의 서버 secret을 통해서만 수행한다.
 - 심사 시작 전에 Supabase Pro로 전환해 비활성 자동 중지를 방지하고, 심사 종료 후 데이터 보존·서비스 유지 여부를 확인한 뒤 요금제를 조정한다.
 - DB migration과 Edge Function 배포는 버전 관리한다.
@@ -452,6 +455,8 @@ Android 세션은 OS가 보호하는 비밀 저장소를 사용하는 Expo 호�
 - EAS Hosting: https://docs.expo.dev/eas/hosting/get-started/
 - EAS Build Internal Distribution: https://docs.expo.dev/build/internal-distribution/
 - EAS Android APK: https://docs.expo.dev/build-reference/apk/
+- EAS Update: https://docs.expo.dev/deploy/send-over-the-air-updates/
+- EAS Update runtime 호환성: https://docs.expo.dev/build/updates/
 - EAS 요금제: https://docs.expo.dev/billing/plans/
 - Supabase Auth: https://supabase.com/docs/guides/auth
 - Supabase Pricing: https://supabase.com/pricing

@@ -11,6 +11,7 @@
 - 심사용 웹은 Expo web export를 EAS Hosting 무료 플랜에 배포하고, 인증·Postgres·Storage·Edge Functions는 Supabase에서 운영한다. 심사 기간에는 Supabase Pro를 사용해 비활성 자동 중지를 방지하고 OpenAI API는 Supabase Edge Function에서만 호출한다. 배포 후 서비스는 사용자의 로컬 컴퓨터와 독립적으로 작동한다.
 - MVP에서는 별도 도메인을 구매하지 않는다. EAS Hosting이 발급하는 무료 `*.expo.app` production URL을 웹 서비스와 고정 `/install` 설치 안내 페이지에 사용하고, QR 코드는 이 설치 안내 페이지를 가리킨다. 커스텀 도메인은 정식 서비스 전환 후 선택적으로 검토한다.
 - Android 심사용 앱은 EAS Build의 `distribution: internal` 프로필로 서명된 설치용 APK를 생성하고 공유 URL로 제공한다. 웹 링크를 기본 체험 경로로 유지하며 APK 링크와 QR 설치 안내를 함께 제출한다. Play Console 내부 테스트와 GitHub Releases는 MVP의 APK 배포 필수 경로로 사용하지 않는다.
+- production 웹은 `https://naengtalk.expo.app`에 먼저 배포해 사용자가 실시간으로 기능·UI를 검수한다. Android는 EAS Update의 production 채널과 앱 버전 기반 runtime을 미리 설정하되, 첫 APK는 웹 디자인이 확정된 뒤 빌드한다.
 - 백엔드는 Supabase를 사용하고, 일반 사용자는 Google 로그인, 심사위원은 더미 데이터가 복제되는 독립 게스트 세션으로 진입한다.
 - 인증되지 않은 첫 실행에는 홈이 아니라 전용 로그인 화면을 표시한다. 화면 중앙에 `게스트 로그인(심사)`과 `Google 로그인` 두 버튼을 제공하며, 인증과 초기화가 성공한 뒤에만 홈으로 이동한다. 유효한 로그인 세션은 앱·웹 재실행 시 자동 복원하고 설정에서 명시적으로 로그아웃하면 로그인 화면으로 돌아간다. 7일 비활성 정리로 삭제된 게스트나 갱신할 수 없는 세션은 다시 로그인해야 한다.
 - Google 로그인과 게스트 초기화가 성공하면 별도의 온보딩·체크리스트·`냉톡 시작하기` 화면 없이 바로 홈으로 진입한다. 일반 사용자는 알레르기·조리도구·재고를 각 기능 화면에서 필요할 때 직접 등록한다.

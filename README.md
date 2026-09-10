@@ -6,6 +6,8 @@
 
 Wanted AI Championship 2026 출품을 목표로 개발하고 있습니다.
 
+**웹 데모:** https://naengtalk.expo.app
+
 ## 해결하려는 문제
 
 1인 가구는 구매한 식재료의 양과 소비 시점을 지속해서 관리하기 어렵습니다. 기존 냉장고 관리 앱은 재고 목록 입력에, 일반 레시피 서비스는 정해진 레시피 제공에 집중하는 경우가 많습니다.
@@ -54,9 +56,11 @@ Wanted AI Championship 2026 출품을 목표로 개발하고 있습니다.
 | Supabase 스키마·RLS·게스트 시드 migration | 원격 프로젝트 적용 및 사용자별 격리 검증 완료 |
 | Supabase 익명 로그인·원격 재고 | 로그인·10종 시드·세션 복원 연결 완료 |
 | Google 로그인 | OAuth 설정 후 연결 예정 |
-| GPT 대화·검색·레시피 재설계 | 인증 Edge Function과 앱 연결 구현, secret 등록·실환경 호출 검증 대기 |
-| 구매내역 OCR | Android·웹 공통 Luna 비전 함수, R1~R5·사용자 다중 이미지 선택, 편집 검수, 공용 소비기한 캐시와 멱등 등록 구현 완료; secret·배포 후 실측 대기 |
-| Android APK·웹 배포 | 구현 완료 후 진행 예정 |
+| GPT 대화·검색·레시피 재설계 | Edge Function 배포 및 production 웹 실환경 응답 검증 완료 |
+| 구매내역 OCR | Android·웹 공통 Luna 비전 함수와 검수·등록 구현 완료; production R1 실측 완료, R2~R5 비교 예정 |
+| 웹 배포 | EAS Hosting production 배포 및 게스트 로그인·원격 재고·GPT 채팅 검증 완료 |
+| Android APK | 웹 UI 검수와 디자인 확정 후 EAS 내부 배포 빌드 예정 |
+| EAS Update | Android production 채널과 `appVersion` runtime 정책 설정 완료 |
 
 Supabase가 설정된 환경의 게스트 재고는 접속자별 익명 사용자에게 원격으로 생성·격리됩니다. 채팅은 인증된 `menu-chat` Edge Function을 통해 GPT에 연결되며, 검증된 구조화 레시피만 화면과 차감 흐름에 전달합니다. 요리 완료 시 레시피·조리 세션·사용량·완료 기록과 재고 차감이 하나의 서버 트랜잭션으로 반영됩니다. OpenAI secret과 함수가 배포되지 않은 로컬 환경에서는 검증용 샘플 레시피를 사용합니다.
 
@@ -85,7 +89,7 @@ Codex는 대회 규정 조사, 제품 요구사항과 기술 설계 문서화, �
 - **백엔드**: Supabase Auth, Postgres, Row Level Security, Edge Functions
 - **AI**: OpenAI Responses API
 - **구매내역 OCR**: OpenAI `gpt-5.6-luna` 비전, Supabase Edge Function
-- **웹 배포**: EAS Hosting 예정
+- **웹 배포**: EAS Hosting (`https://naengtalk.expo.app`)
 - **테스트**: Node.js test runner, TypeScript type check
 
 ## 프로젝트 구조
