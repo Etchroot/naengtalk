@@ -18,23 +18,23 @@
 | 계층 | 제안 기술 | 역할 | 상태 |
 | --- | --- | --- | --- |
 | 클라이언트 | Expo + React Native + TypeScript + Expo Router | Android·웹 UI와 탐색 | 확정 |
-| Android OCR | ML Kit Text Recognition v2 한국어 번들 모델 | 구매내역 텍스트 추출 | 확정 |
+| 구매내역 OCR | OpenAI `gpt-5.6-luna` 비전 + strict JSON schema | Android·웹 공통 텍스트 추출·상품 구조화 | 확정·구현 |
 | 백엔드 | Supabase Auth, Postgres, Storage, Edge Functions | 인증, 데이터, 이미지, 서버 로직 | 확정 |
 | AI 게이트웨이 | Supabase Edge Function + OpenAI Responses API adapter | 구조화, 대화, 검색 판단, 레시피 변형 | 제공자·구조·모델 조합 확정 |
 | 레시피 검색 | OpenAI `web_search` 도메인 제한 + 일반 웹 fallback | 만개의레시피·YouTube 주문형 근거 검색과 출처 제공 | 확정 |
 | Android 알림 | Expo 호환 알림 모듈 | 임박 재료 알림 | 구현 방식 미정 |
 | 배포 | EAS Hosting 무료 + 심사 기간 Supabase Pro | Expo 웹 production URL, Auth·Postgres·Storage·Edge Functions 상시 운영 | 확정 |
 
-Expo Router는 Android와 웹에서 통합된 탐색 구조를 제공하므로 단일 코드베이스 목표에 적합하다. ML Kit Text Recognition v2는 한국어 스크립트를 지원한다. Supabase Auth는 Postgres RLS와 연동할 수 있고 Edge Functions는 OpenAI API 키를 클라이언트 밖에서 관리하는 서버 경계로 사용한다.
+Expo Router는 Android와 웹에서 통합된 탐색 구조를 제공하므로 단일 코드베이스 목표에 적합하다. OpenAI 비전은 두 플랫폼에서 같은 모델·프롬프트·구조화 계약을 사용할 수 있다. Supabase Auth는 Postgres RLS와 연동하고 Edge Functions는 OpenAI API 키를 클라이언트 밖에서 관리하는 서버 경계로 사용한다.
 
-AI 실행 구조는 하이브리드로 고정한다. Android는 ML Kit 번들 모델로 OCR을 수행하고 서버에는 필요한 텍스트만 전달한다. 웹은 동일한 온디바이스 조건을 보장하기 어려우므로 서버 OCR adapter를 사용한다. 단위·날짜·알레르기·고위험 조리·재고 차감은 결정적 코드가 담당하며, 클라우드 모델은 상품 구조화·대화 의도·검색 쿼리 분해·레시피 재설계만 수행한다.
+AI 실행 구조는 하이브리드로 고정한다. Android와 웹은 구매내역 이미지를 `purchase-ocr` Edge Function으로 보내 동일한 OpenAI 비전 경로를 사용한다. 모델은 화면 텍스트 전사와 상품 후보 구조화까지만 담당하고, 단위 허용 목록·날짜·알레르기·고위험 조리·재고 차감은 결정적 코드가 담당한다.
 
 ## 3. 논리 구성요소
 
 ### 클라이언트
 
 - `auth`: 로그인 화면, Google OAuth, 게스트 익명 인증, 시작 시 세션 복원·갱신, 인증 가드와 로그아웃
-- `capture`: 이미지 선택, Android OCR, 업로드 동의
+- `capture`: 심사용 번들 샘플 선택, data URL 변환, OCR 결과 검수·등록
 - `inventory`: 합산 목록, lot 상세, 직접 입력, 수정·취소
 - `cooking-tools`: 자연어 입력, 구조화 검수, 3열 카드 목록과 긴 원문 줄바꿈, 수정·삭제
 - `chat`: 대화 UI, 스트리밍 응답, 도구 실행 확인
@@ -46,7 +46,7 @@ AI 실행 구조는 하이브리드로 고정한다. Android는 ML Kit 번들 �
 
 ### 서버
 
-- `capture-parse`: OCR 텍스트·이미지를 상품 후보로 구조화
+- `purchase-ocr`: JWT·이미지·일일 한도를 검증하고 OpenAI 비전으로 텍스트·상품 후보를 구조화
 - `chat-orchestrator`: 대화 상태, 도구 선택, 응답 생성
 - `recipe-retrieve`: 사용자 요청의 구체성을 판정해 메뉴명 또는 임박 재료 1~2개로 쿼리를 만들고, `10000recipe.com` 허용 도메인 검색 최대 2회 후 `youtube-search → general-web-search` 순서로 근거와 출처 메타데이터 반환
 - `recipe-adapt`: 최대 3개 출처의 공통 조리 원리·안전 조건을 잠근 뒤 재고·알레르기·도구·시간 기준으로 재설계하고 변경 요약 반환
@@ -119,19 +119,18 @@ UI는 `estimated`를 소비기한으로 표현하지 않고 `권장 소진일(�
 ### 구매내역 캡처
 
 1. 클라이언트가 이미지를 선택하고 개인정보 포함 가능성을 고지한다.
-2. Android는 온디바이스 OCR을 수행하고 원본 이미지는 기기 밖으로 보내지 않는다. 클라이언트의 결정적 필터가 주문번호·이름·주소·연락처·결제정보처럼 상품 인식에 불필요한 텍스트를 제거한 뒤 상품 관련 텍스트만 서버에 보낸다. 웹은 비공개 임시 업로드를 통해 서버 OCR을 수행한다.
-3. 상품 썸네일 등 시각 영역은 상품 판별 입력에서 제외하고 OCR 텍스트만 이후 단계에 전달한다.
-4. `capture-parse`가 입력을 `supported_order_history` 또는 `generic_e_receipt`로 분류한다.
-   - 신뢰도가 낮으면 파싱을 진행하기 전에 원천 선택 요청을 반환한다.
-5. 지원 주문내역이면 배달의민족 장보기·쿠팡·마켓컬리별 텍스트 파서를 우선 적용한다.
-6. 전자영수증이면 품목 행, 수량, 단가, 합계 패턴을 사용하는 범용 텍스트 파서를 적용한다.
-7. AI 구조화 계층이 상품명·옵션·수량·단위 용량을 공통 JSON 스키마로 정규화한다.
+2. 클라이언트는 5MB 이하의 JPEG·PNG·WebP를 data URL로 바꾸고 사용자 JWT와 함께 `purchase-ocr`에 전달한다.
+3. 함수는 JWT와 사용자별 `purchase_ocr` 하루 10회 원자적 카운터를 검증한다.
+4. `gpt-5.6-luna`에 `detail: original`, reasoning `none`, `store:false`, strict JSON schema로 요청한다. 상품 썸네일 외형을 근거로 추측하지 않고 화면 텍스트만 전사하도록 지시한다.
+5. 모델은 원문, 재고용 식품명, 총량, 지원 단위, 식품군, 신뢰도, 검수 필요, 비식품 여부를 반환한다.
+6. 클라이언트는 허용 단위와 양수 수량을 다시 검증하고, 불확실·비식품 항목을 자동 등록에서 제외한다.
+7. 사용자가 확정하면 등록일과 식품군별 보수적 D+ 규칙으로 `estimated` 날짜를 계산해 현재 사용자 소유 `inventory_lots`에 저장한다.
 8. 규칙 엔진이 총용량, 단위, 재료 후보와 신뢰도를 검증한다.
 9. 서버가 필드별 신뢰도와 검증 결과를 반환하고, 클라이언트는 모든 품목을 한 화면에 자동 입력한다.
 10. 낮은 신뢰도, 단위 충돌, 총용량 계산 실패 필드는 `확인 필요`로 강조한다. 사용자는 품목 제외, 직접 수정 또는 채팅을 통한 사후 정정을 선택할 수 있다.
 11. 등록 시점에 확인 필요 필드가 남아 있으면 수정 또는 명시적 수락을 요구한다.
 12. 사용자가 마지막 `재고에 등록`을 누른 뒤에만 포함된 품목의 `inventory_lots`를 하나의 멱등성 있는 작업으로 생성한다.
-13. Android 원본은 서버에 존재하지 않는다. 웹 임시 원본은 분석 성공 또는 취소 직후 삭제하며, 삭제 작업 실패·비정상 종료에 대비한 정리 작업이 생성 후 1시간 이내에 강제 삭제한다.
+13. Android·웹 원본은 Storage나 DB에 저장하지 않고 함수의 요청 메모리에서만 사용한다. 응답 또는 오류가 끝나면 서버가 유지하는 이미지 참조는 없다.
 
 부분 재분석은 품목과 필드 단위의 상태를 유지한다. 서버 응답을 병합할 때 `user_edited` 필드는 보존하고, 실패한 필드와 AI가 제안한 필드만 갱신한다.
 
@@ -141,8 +140,8 @@ OCR 원문과 구조화 검수 초안은 영구 테이블에 저장하지 않고
 
 | 유형 | 우선 지원 범위 | 분석 입력 | 파싱 전략 |
 | --- | --- | --- | --- |
-| `supported_order_history` | 배달의민족 장보기, 쿠팡, 마켓컬리 | OCR 텍스트 | 쇼핑몰별 텍스트 앵커 + 공통 AI 구조화 |
-| `generic_e_receipt` | 종이 영수증 레이아웃의 전자영수증 | OCR 텍스트 | 품목 행·수량·단가·합계 패턴 + 공통 AI 구조화 |
+| `supported_order_history` | 배달의민족 장보기, 쿠팡, 마켓컬리 | 구매내역 이미지 | OpenAI 비전 전사 + 공통 strict schema |
+| `generic_e_receipt` | 종이 영수증 레이아웃의 전자영수증 | 전자영수증 이미지 | OpenAI 비전 전사 + 공통 strict schema |
 
 실물 종이 영수증 사진과 식재료 실물 사진은 MVP 입력으로 받지 않는다.
 
@@ -344,8 +343,8 @@ Android 세션은 OS가 보호하는 비밀 저장소를 사용하는 Expo 호�
 - 게스트도 익명 공유 계정이 아니라 세션별 사용자 ID를 사용한다.
 - AI Edge Function은 사용자 JWT를 검증하고 사용자 범위의 DB 클라이언트를 사용한다.
 - service role은 게스트 초기화 등 제한된 서버 작업에만 사용한다.
-- 웹 업로드 이미지는 공개 버킷에 두지 않고 요청 소유자와 서버 처리 함수만 접근할 수 있게 한다. 성공·취소 시 즉시 삭제하고 생성 후 1시간 강제 만료를 적용한다.
-- Android OCR 전처리는 비상품 개인정보 패턴을 제거하고, 서버는 같은 규칙으로 한 번 더 검사한 뒤 AI 구조화 요청을 만든다.
+- Android·웹 이미지는 Storage에 업로드하지 않고 함수 요청 메모리에서만 처리한다. OpenAI 요청은 `store:false`이며 처리 후 참조를 남기지 않는다.
+- 모델 지침은 주문번호·이름·주소·연락처·결제정보를 OCR 원문과 상품 결과에서 제외한다. 서버는 이미지나 OCR 원문을 로그에 쓰지 않는다.
 - OCR 원문, 원본 캡처, 주소·연락처·결제정보를 애플리케이션 로그와 오류 추적 도구에 기록하지 않는다.
 - 로그에는 구매내역 원문, 이메일, 전체 대화문을 기본 저장하지 않는다.
 - 프롬프트 인젝션을 데이터로 취급하고 허용 도구·권한을 확장하지 않는다.
@@ -354,7 +353,7 @@ Android 세션은 OS가 보호하는 비밀 저장소를 사용하는 Expo 호�
 
 | 기능 | Android | 웹 |
 | --- | --- | --- |
-| 구매내역 OCR | ML Kit 한국어 번들 모델 우선 | 서버 OCR·멀티모달 처리 |
+| 구매내역 OCR | 인증된 OpenAI 비전 Edge Function | 인증된 OpenAI 비전 Edge Function |
 | 임박 알림 | 시스템 푸시·로컬 알림 | 앱 내 배너 |
 | 조리 타이머 | `AlarmClock.ACTION_SET_TIMER` Intent | 종료 시각 기반 앱 내부 타이머, 탭 전환 후 복원 |
 | 이미지 선택 | 네이티브 이미지 피커 | 파일 업로드 |
@@ -461,7 +460,7 @@ Android 세션은 OS가 보호하는 비밀 저장소를 사용하는 Expo 호�
 - Supabase Row Level Security: https://supabase.com/docs/guides/database/postgres/row-level-security
 - Supabase Edge Functions: https://supabase.com/docs/guides/functions
 - Supabase Edge Function 보안: https://supabase.com/docs/guides/functions/auth
-- ML Kit Text Recognition v2: https://developers.google.com/ml-kit/vision/text-recognition/v2
+- OpenAI 이미지·비전 입력: https://developers.openai.com/api/docs/guides/images-vision
 - Android AlarmClock: https://developer.android.com/reference/android/provider/AlarmClock
 - 만개의레시피: https://www.10000recipe.com/
 - 만개의레시피 이용약관: https://www.10000recipe.com/user/rules.html?f=contract

@@ -21,7 +21,7 @@ Wanted AI Championship 2026 출품을 목표로 개발하고 있습니다.
 
 - **대화형 메뉴 상담**: 사용자가 원하는 메뉴와 조리 시간을 말하면 현재 재고에 맞는 레시피 한 가지를 제안하고 후속 대화로 수정합니다.
 - **임박 재료 우선 안내**: 권장 소진일이 가까운 재료를 홈에서 먼저 보여주며 화면 높이에 따라 최대 6개까지 표시합니다.
-- **구매내역 기반 재고 등록**: 배달의민족 장보기·쿠팡·마켓컬리 주문내역과 범용 전자영수증의 텍스트를 분석하는 흐름을 제공합니다.
+- **구매내역 기반 재고 등록**: OpenAI 비전으로 배달의민족 장보기·쿠팡·마켓컬리 주문내역과 범용 전자영수증의 텍스트를 분석하고, 검수한 품목을 재고에 등록합니다.
 - **자연어 직접 등록**: `두부 300g, 계란 10개, 소비기한은 9월 15일`처럼 여러 식품을 한 번에 입력할 수 있습니다.
 - **재고 정렬과 수정**: 남은 소비기한 순 또는 한국어 이름순으로 확인하고, 화면과 채팅에서 수량을 수정합니다.
 - **조리도구 반영**: 냄비·프라이팬·전자레인지·에어프라이어 등 사용자가 등록한 조리도구로 실행 가능한 레시피만 설계합니다.
@@ -54,7 +54,7 @@ Wanted AI Championship 2026 출품을 목표로 개발하고 있습니다.
 | Supabase 익명 로그인·원격 재고 | 로그인·10종 시드·세션 복원 연결 완료 |
 | Google 로그인 | OAuth 설정 후 연결 예정 |
 | GPT 대화·검색·레시피 재설계 | 인증 Edge Function과 앱 연결 구현, secret 등록·실환경 호출 검증 대기 |
-| 구매내역 OCR | Android·웹 플랫폼별 구현 예정 |
+| 구매내역 OCR | Android·웹 공통 Luna 비전 함수, R1~R5 심사용 선택·검수·재고 등록 구현 완료; secret·배포 후 실측 대기 |
 | Android APK·웹 배포 | 구현 완료 후 진행 예정 |
 
 Supabase가 설정된 환경의 게스트 재고는 접속자별 익명 사용자에게 원격으로 생성·격리됩니다. 채팅은 인증된 `menu-chat` Edge Function을 통해 GPT에 연결되며, 검증된 구조화 레시피만 화면과 차감 흐름에 전달합니다. 요리 완료 시 레시피·조리 세션·사용량·완료 기록과 재고 차감이 하나의 서버 트랜잭션으로 반영됩니다. OpenAI secret과 함수가 배포되지 않은 로컬 환경에서는 검증용 샘플 레시피를 사용합니다.
@@ -63,7 +63,7 @@ Supabase가 설정된 환경의 게스트 재고는 접속자별 익명 사용�
 
 냉톡은 MVP에서 OpenAI GPT와 Responses API를 유일한 생성형 AI 제공자로 사용할 계획입니다.
 
-- 주문내역·자연어 식품 입력의 구조화
+- 구매내역 이미지의 글자 인식과 주문 상품 구조화
 - 사용자의 재고 관련 발화 해석
 - 메뉴 의도와 임박 재료를 고려한 대화
 - 만개의레시피 우선 검색과 필요 시 YouTube·일반 웹 검색 확장
@@ -83,7 +83,7 @@ Codex는 대회 규정 조사, 제품 요구사항과 기술 설계 문서화, �
 - **대상 플랫폼**: Android, Web
 - **백엔드**: Supabase Auth, Postgres, Row Level Security, Edge Functions
 - **AI**: OpenAI Responses API
-- **Android OCR**: 온디바이스 ML Kit Text Recognition 적용 예정
+- **구매내역 OCR**: OpenAI `gpt-5.6-luna` 비전, Supabase Edge Function
 - **웹 배포**: EAS Hosting 예정
 - **테스트**: Node.js test runner, TypeScript type check
 
@@ -145,6 +145,7 @@ node mobile/node_modules/typescript/bin/tsc --noEmit -p mobile/tsconfig.json
 - [해커톤 규정 정리](docs/HACKATHON_RULES.md)
 - [제출서류 초안](SUBMISSION.md)
 - [OpenAI API 배포 설정](docs/OPENAI_SETUP.md)
+- [구매내역 샘플 판독 기준](docs/OCR_SAMPLE_RESULTS.md)
 
 ## 라이선스
 

@@ -1,5 +1,6 @@
 import React, { useEffect, useMemo, useRef, useState } from "react";
 import {
+  Image,
   Modal,
   Linking,
   Platform,
@@ -56,6 +57,16 @@ import {
 import { loadRemoteInventory } from "../services/remote-inventory.ts";
 import { completeRemoteCooking } from "../services/remote-cooking.ts";
 import { sendMenuChat } from "../services/menu-chat.ts";
+import {
+  buildInventoryCandidates,
+  type PurchaseOcrResponse,
+} from "../domain/purchase-ocr.ts";
+import { analyzePurchaseDemo } from "../services/purchase-ocr.ts";
+import { registerRemoteInventory } from "../services/register-inventory.ts";
+import {
+  purchaseDemoAssets,
+  type PurchaseDemoAsset,
+} from "./purchase-demo-assets.ts";
 import { color, s } from "./theme";
 
 const tabs = ["홈", "채팅", "재고", "레시피", "조리도구", "설정"];
@@ -169,6 +180,10 @@ export default function NaengTalk() {
   const [session, setSession] = useState("");
   const [registration, setRegistration] = useState(false);
   const [direct, setDirect] = useState(false);
+  const [purchasePicker, setPurchasePicker] = useState(false);
+  const [purchaseBusy, setPurchaseBusy] = useState(false);
+  const [purchaseSample, setPurchaseSample] = useState<PurchaseDemoAsset | null>(null);
+  const [purchaseResult, setPurchaseResult] = useState<PurchaseOcrResponse | null>(null);
   const [input, setInput] = useState("");
   const [aiBusy, setAiBusy] = useState(false);
   const [now, setNow] = useState(Date.now());
@@ -284,6 +299,73 @@ export default function NaengTalk() {
       setError("로그아웃하지 못했습니다. 다시 시도해주세요.");
     } finally {
       setAuthBusy(false);
+    }
+  };
+  const closeRegistration = () => {
+    setRegistration(false);
+    setDirect(false);
+    setPurchasePicker(false);
+    setPurchaseBusy(false);
+    setPurchaseSample(null);
+    setPurchaseResult(null);
+    setError("");
+  };
+  const handleAnalyzePurchase = async (sample: PurchaseDemoAsset) => {
+    if (purchaseBusy) return;
+    setPurchaseSample(sample);
+    setPurchaseResult(null);
+    setPurchaseBusy(true);
+    setError("");
+    try {
+      const result = await analyzePurchaseDemo(sample.id, sample.source);
+      setPurchaseResult(result);
+    } catch (e) {
+      setError((e as Error).message);
+    } finally {
+      setPurchaseBusy(false);
+    }
+  };
+  const handleRegisterPurchase = async () => {
+    if (purchaseBusy || !purchaseResult || !purchaseSample) return;
+    const registrationDate = new Date().toISOString().slice(0, 10);
+    const candidates = buildInventoryCandidates(
+      purchaseResult,
+      registrationDate,
+      purchaseSample.id,
+    );
+    if (!candidates.length) {
+      setError("자동 등록 가능한 식품이 없습니다. 확인 필요 항목은 직접 입력해주세요.");
+      return;
+    }
+    setPurchaseBusy(true);
+    setError("");
+    try {
+      if (backendConfig.mode === "supabase") {
+        await registerRemoteInventory(candidates);
+        const inventory = await loadRemoteInventory();
+        setState((current) => ({ ...current, inventory }));
+      } else {
+        setState((current) => ({
+          ...current,
+          inventory: [
+            ...current.inventory,
+            ...candidates.map((item, index) => ({
+              id: `${item.ingredient_key}-${Date.now()}-${index}`,
+              name: item.display_name,
+              quantity: item.quantity,
+              unit: item.unit,
+              useBy: item.use_by_at,
+              estimated: true,
+            })),
+          ],
+        }));
+      }
+      closeRegistration();
+      setTab(2);
+    } catch (e) {
+      setError((e as Error).message);
+    } finally {
+      setPurchaseBusy(false);
     }
   };
   const openRecipe = () => {
@@ -465,7 +547,13 @@ export default function NaengTalk() {
           <>
             <View style={s.header}>
               {tab === 0 ? (
-                <View accessibilityElementsHidden style={s.home} />
+                <View accessibilityElementsHidden style={s.home}>
+                  <Image
+                    source={require("../../assets/images/icon.png")}
+                    resizeMode="contain"
+                    style={{ width: 38, height: 38 }}
+                  />
+                </View>
               ) : (
                 <Pressable
                   accessibilityRole="button"
@@ -1012,8 +1100,7 @@ export default function NaengTalk() {
           transparent
           animationType="fade"
           onRequestClose={() => {
-            setRegistration(false);
-            setDirect(false);
+            closeRegistration();
           }}
         >
           <View
@@ -1024,9 +1111,20 @@ export default function NaengTalk() {
               backgroundColor: "#0007",
             }}
           >
-            <View style={s.card}>
+            <View
+              style={[
+                s.card,
+                { alignSelf: "center", width: "100%", maxWidth: 440, maxHeight: "90%" },
+              ]}
+            >
               <Text style={s.title}>
-                {direct ? "식품 직접 입력" : "재고 등록"}
+                {direct
+                  ? "식품 직접 입력"
+                  : purchaseResult
+                    ? `${purchaseSample?.id ?? ""} 분석 결과`
+                    : purchasePicker
+                      ? "구매내역 샘플 선택"
+                      : "재고 등록"}
               </Text>
               {direct ? (
                 <>
@@ -1044,11 +1142,111 @@ export default function NaengTalk() {
                   </Button>
                   <Text style={s.muted}>{error}</Text>
                 </>
+              ) : purchaseResult ? (
+                <ScrollView showsVerticalScrollIndicator={false}>
+                  {purchaseSample ? (
+                    <Image
+                      source={purchaseSample.source}
+                      resizeMode="cover"
+                      style={{ width: "100%", height: 150, borderRadius: 14, marginBottom: 12 }}
+                    />
+                  ) : null}
+                  <Text style={[s.title, { fontSize: 16 }]}>인식한 구매내역</Text>
+                  <Text selectable style={[s.muted, { marginBottom: 12 }]}>
+                    {purchaseResult.rawText || "읽을 수 있는 상품 텍스트가 없습니다."}
+                  </Text>
+                  <Text style={[s.title, { fontSize: 16 }]}>재고 등록 후보</Text>
+                  {purchaseResult.items.map((item, index) => {
+                    const status = !item.isFood
+                      ? "비식품 제외"
+                      : item.needsReview
+                        ? "확인 필요"
+                        : "자동 등록";
+                    return (
+                      <View
+                        key={`${item.productName}-${index}`}
+                        style={{ paddingVertical: 10, borderBottomWidth: 1, borderBottomColor: color.line }}
+                      >
+                        <View style={s.row}>
+                          <Text style={[s.text, { flex: 1, fontWeight: "600" }]}>
+                            {item.foodName}
+                          </Text>
+                          <Text style={s.badge}>{status}</Text>
+                        </View>
+                        <Text style={s.muted}>{item.productName}</Text>
+                        <Text style={s.muted}>
+                          {item.quantity !== null && item.unit
+                            ? `${item.quantity}${item.unit}`
+                            : "수량·단위 미확인"}
+                          {item.note ? ` · ${item.note}` : ""}
+                        </Text>
+                      </View>
+                    );
+                  })}
+                  <Text style={[s.muted, { marginVertical: 12 }]}>
+                    확인 필요 또는 비식품 항목은 자동 등록하지 않습니다. 원본 이미지는 저장하지 않습니다.
+                  </Text>
+                  <Button onPress={() => void handleRegisterPurchase()}>
+                    {purchaseBusy ? "등록 중…" : "확인된 식품 재고에 등록"}
+                  </Button>
+                  <View style={{ height: 10 }} />
+                  <Button
+                    secondary
+                    onPress={() => {
+                      setPurchaseResult(null);
+                      setPurchaseSample(null);
+                      setError("");
+                    }}
+                  >
+                    다른 캡처 선택
+                  </Button>
+                  {error ? <Text style={{ color: "#a94232", marginTop: 10 }}>{error}</Text> : null}
+                </ScrollView>
+              ) : purchasePicker ? (
+                <ScrollView showsVerticalScrollIndicator={false}>
+                  <Text style={[s.muted, { marginBottom: 12 }]}>
+                    심사용 샘플을 선택하면 OpenAI 비전이 화면의 구매 텍스트만 분석합니다.
+                  </Text>
+                  <View style={s.grid}>
+                    {purchaseDemoAssets.map((sample) => (
+                      <Pressable
+                        accessibilityRole="button"
+                        accessibilityLabel={`${sample.id} 구매내역 분석`}
+                        disabled={purchaseBusy}
+                        key={sample.id}
+                        onPress={() => void handleAnalyzePurchase(sample)}
+                        style={[s.card, { width: "47%", padding: 8, borderRadius: 16 }]}
+                      >
+                        <Image
+                          source={sample.source}
+                          resizeMode="cover"
+                          style={{ width: "100%", height: 116, borderRadius: 10 }}
+                        />
+                        <Text style={[s.text, { fontWeight: "700" }]}>{sample.id}</Text>
+                        <Text style={s.muted}>{sample.label}</Text>
+                      </Pressable>
+                    ))}
+                  </View>
+                  {purchaseBusy ? (
+                    <Text accessibilityLiveRegion="polite" style={[s.text, { marginTop: 12 }]}>
+                      {purchaseSample?.id} 구매내역을 분석하고 있어요…
+                    </Text>
+                  ) : null}
+                  {error ? <Text style={{ color: "#a94232", marginTop: 10 }}>{error}</Text> : null}
+                </ScrollView>
               ) : (
                 <>
                   <Text style={s.muted}>
-                    구매내역·영수증 인식은 서버 연결 후 활성화합니다.
+                    구매내역 캡처를 AI로 분석하거나 식품을 직접 입력할 수 있습니다.
                   </Text>
+                  <Button
+                    onPress={() => {
+                      setPurchasePicker(true);
+                      setError("");
+                    }}
+                  >
+                    구매내역 캡처 등록
+                  </Button>
                   <Button secondary onPress={() => setDirect(true)}>
                     직접 입력
                   </Button>
@@ -1056,11 +1254,7 @@ export default function NaengTalk() {
               )}
               <Button
                 secondary
-                onPress={() => {
-                  setRegistration(false);
-                  setDirect(false);
-                  setError("");
-                }}
+                onPress={closeRegistration}
               >
                 닫기
               </Button>
