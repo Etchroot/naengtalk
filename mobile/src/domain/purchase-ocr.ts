@@ -63,11 +63,43 @@ function isUnit(value: unknown): value is PurchaseOcrUnit {
   return typeof value === 'string' && PURCHASE_OCR_UNITS.includes(value as PurchaseOcrUnit);
 }
 
+function normalizedEvidenceText(value: string): string {
+  return value.normalize('NFKC').toLowerCase().replace(/[^0-9a-z가-힣]+/g, ' ');
+}
+
+function hasTextEvidence(rawText: string, productName: string, foodName: string): boolean {
+  const source = normalizedEvidenceText(rawText);
+  const phrases = [productName, foodName]
+    .map(normalizedEvidenceText)
+    .flatMap((value) => value.split(/\s+/))
+    .filter((value) => (
+      (/[가-힣]/.test(value) && value.length >= 2)
+      || /^[a-z]{3,}$/.test(value)
+    ));
+  return phrases.some((phrase) => source.includes(phrase));
+}
+
+function dedupeItems(items: PurchaseOcrItem[]): PurchaseOcrItem[] {
+  const seen = new Set<string>();
+  return items.filter((item) => {
+    const key = [
+      normalizedEvidenceText(item.productName),
+      normalizedEvidenceText(item.foodName),
+      item.quantity ?? '',
+      item.unit ?? '',
+    ].join('|');
+    if (seen.has(key)) return false;
+    seen.add(key);
+    return true;
+  });
+}
+
 export function parsePurchaseOcrResponse(input: unknown): PurchaseOcrResponse {
   if (!isRecord(input) || typeof input.rawText !== 'string' || !Array.isArray(input.items)) {
     throw new Error('구매내역 AI 응답 형식이 올바르지 않습니다.');
   }
 
+  const rawText = input.rawText.trim().slice(0, 12_000);
   const items = input.items.slice(0, 40).flatMap((value): PurchaseOcrItem[] => {
     if (!isRecord(value)) return [];
     const productName = text(value.productName);
@@ -113,9 +145,9 @@ export function parsePurchaseOcrResponse(input: unknown): PurchaseOcrResponse {
       packageState,
       internalNote,
     }];
-  });
+  }).filter((item) => hasTextEvidence(rawText, item.productName, item.foodName));
 
-  return { rawText: input.rawText.trim().slice(0, 12_000), items };
+  return { rawText, items: dedupeItems(items) };
 }
 
 export function normalizedIngredientKey(foodName: string): string {

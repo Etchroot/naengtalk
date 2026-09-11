@@ -17,6 +17,11 @@ const sharedShelfLifeMigration = readFileSync(
   'utf8',
 ).toLowerCase();
 
+const inventoryParseRateLimitMigration = readFileSync(
+  new URL('../supabase/migrations/202609110001_inventory_parse_rate_limit.sql', import.meta.url),
+  'utf8',
+).toLowerCase();
+
 test('public inventory tables use explicit least-privilege Data API grants', () => {
   assert.match(migration, /revoke all on table\s+public\.profiles[\s\S]*from anon, authenticated;/);
   assert.match(
@@ -51,4 +56,10 @@ test('inventory import RPC is owner-scoped, idempotent, and callable only after 
   assert.match(sharedShelfLifeMigration, /current_user_id uuid := auth\.uid\(\)/);
   assert.match(sharedShelfLifeMigration, /on conflict \(owner_id, idempotency_key\) do nothing/);
   assert.match(sharedShelfLifeMigration, /grant execute on function public\.register_inventory_import\(text,jsonb\) to authenticated/);
+});
+
+test('shared feature counter explicitly permits direct inventory parsing', () => {
+  assert.match(inventoryParseRateLimitMigration, /feature_name not in \('purchase_ocr', 'inventory_parse'\)/);
+  assert.match(inventoryParseRateLimitMigration, /request_count < daily_limit/);
+  assert.match(inventoryParseRateLimitMigration, /grant execute on function public\.consume_feature_request\(text, integer\) to authenticated/);
 });

@@ -1,8 +1,8 @@
 import React, { useEffect, useMemo, useRef, useState } from "react";
 import {
+  ActivityIndicator,
   Image,
   Modal,
-  Linking,
   Platform,
   Pressable,
   ScrollView,
@@ -47,7 +47,17 @@ import {
   sortInventory,
   type InventorySortMode,
 } from "../domain/inventory-presentation.ts";
-import { getAndroidWebFrame } from "../domain/web-frame.ts";
+import {
+  getAndroidWebFrame,
+  getPhoneShellStyle,
+} from "../domain/web-frame.ts";
+import { breakSentences } from "../domain/readable-text.ts";
+import {
+  createUsageDraft,
+  updateUsageDraftQuantity,
+  usageFromDraft,
+  type UsageDraft,
+} from "../domain/usage-review.ts";
 import { backendConfig } from "../services/backend-config.ts";
 import {
   restoreRemoteSession,
@@ -68,6 +78,7 @@ import {
   type PurchaseSelection,
 } from "../domain/purchase-review.ts";
 import { analyzePurchaseImage } from "../services/purchase-ocr.ts";
+import { analyzeInventoryText } from "../services/inventory-parse.ts";
 import {
   pickPurchaseImages,
   selectionFromSample,
@@ -158,20 +169,35 @@ function Button({
   children,
   onPress,
   secondary = false,
+  loading = false,
+  disabled = false,
 }: {
   children: string;
   onPress: () => void;
   secondary?: boolean;
+  loading?: boolean;
+  disabled?: boolean;
 }) {
+  const inactive = disabled || loading;
   return (
     <Pressable
       accessibilityRole="button"
+      accessibilityState={{ disabled: inactive, busy: loading }}
+      disabled={inactive}
       onPress={onPress}
-      style={[s.button, secondary && s.secondary]}
+      style={[s.button, secondary && s.secondary, inactive && s.buttonDisabled]}
     >
-      <Text style={[s.buttonText, secondary && { color: color.green }]}>
-        {children}
-      </Text>
+      <View style={s.buttonContent}>
+        <Text style={[s.buttonText, secondary && { color: color.green }]}>
+          {children}
+        </Text>
+        {loading ? (
+          <ActivityIndicator
+            size="small"
+            color={secondary ? color.green : "white"}
+          />
+        ) : null}
+      </View>
     </Pressable>
   );
 }
@@ -193,6 +219,8 @@ export default function NaengTalk() {
   const [purchaseRows, setPurchaseRows] = useState<PurchaseReviewRow[]>([]);
   const [purchaseFailures, setPurchaseFailures] = useState<Array<{ id: string; label: string; error: string }>>([]);
   const [purchaseProgress, setPurchaseProgress] = useState("");
+  const [directInput, setDirectInput] = useState("");
+  const [usageDraft, setUsageDraft] = useState<UsageDraft[]>([]);
   const [input, setInput] = useState("");
   const [aiBusy, setAiBusy] = useState(false);
   const [now, setNow] = useState(Date.now());
@@ -213,6 +241,7 @@ export default function NaengTalk() {
     Platform.OS === "web"
       ? [
           s.app,
+          getPhoneShellStyle(Platform.OS),
           {
             flexGrow: 0,
             flexShrink: 0,
@@ -319,6 +348,7 @@ export default function NaengTalk() {
     setPurchaseRows([]);
     setPurchaseFailures([]);
     setPurchaseProgress("");
+    setDirectInput("");
     setError("");
   };
   const togglePurchaseSample = (sample: (typeof purchaseDemoAssets)[number]) => {
@@ -369,6 +399,27 @@ export default function NaengTalk() {
     setPurchaseProgress("");
     setPurchaseBusy(false);
     setPurchasePicker(false);
+  };
+  const handleAnalyzeDirectInventory = async () => {
+    if (purchaseBusy || !directInput.trim()) return;
+    setPurchaseBusy(true);
+    setPurchaseProgress("입력 내용을 분석하고 있어요");
+    setError("");
+    try {
+      const result = await analyzeInventoryText(directInput);
+      const rows = appendPurchaseReviewRows([], [
+        analysisFromResponse(`DIRECT-${Date.now()}`, result),
+      ]);
+      if (!rows.length) throw new Error("등록할 식품을 찾지 못했습니다.");
+      setPurchaseRows(rows);
+      setPurchaseFailures([]);
+      setDirect(false);
+    } catch (e) {
+      setError((e as Error).message);
+    } finally {
+      setPurchaseProgress("");
+      setPurchaseBusy(false);
+    }
   };
   const handleRegisterPurchase = async () => {
     if (purchaseBusy || !purchaseRows.length) return;
@@ -422,6 +473,7 @@ export default function NaengTalk() {
     setSession(`local-${Date.now()}-${Math.random()}`);
     setError("");
     setReview(false);
+    setUsageDraft([]);
     setDetail(true);
   };
   const handleSendChat = async () => {
@@ -475,7 +527,7 @@ export default function NaengTalk() {
     setError("");
     try {
       if (!state.recipe) throw new Error("완료할 레시피가 없습니다.");
-      const usage = recipeUsage(state.recipe);
+      const usage = usageFromDraft(usageDraft);
       if (!usage.length) throw new Error("재고에서 차감할 재료가 없습니다.");
       if (backendConfig.mode === "supabase") {
         await completeRemoteCooking({
@@ -499,11 +551,14 @@ export default function NaengTalk() {
       }
       setDetail(false);
       setReview(false);
+      setUsageDraft([]);
       setTab(3);
     } catch (e) {
       const message = (e as Error).message;
       setError(
-        message.includes("insufficient inventory")
+        message.includes("사용량") || message.includes("0보다")
+          ? message
+          : message.includes("insufficient inventory")
           ? "재고가 부족합니다. 구매하거나 사용량을 수정해주세요."
           : backendConfig.mode === "supabase"
             ? "요리 완료를 반영하지 못했습니다. 잠시 후 다시 시도해주세요."
@@ -535,6 +590,11 @@ export default function NaengTalk() {
   );
   const activeRecipe = state.recipe ?? sampleRecipe;
   const activeUsage = recipeUsage(activeRecipe);
+  const startUsageReview = () => {
+    setError("");
+    setUsageDraft(createUsageDraft(activeUsage));
+    setReview(true);
+  };
   const recipeCard = state.recipe && (
     <Pressable
       accessibilityRole="button"
@@ -553,7 +613,6 @@ export default function NaengTalk() {
       </View>
       <View style={s.row}>
         <Text style={s.badge}>{state.recipe.minutes}분</Text>
-        <Text style={s.badge}>{state.recipe.difficulty}</Text>
         <Text style={s.badge}>{state.recipe.servings}인분</Text>
       </View>
     </Pressable>
@@ -574,8 +633,8 @@ export default function NaengTalk() {
             <Text style={[s.title, { fontSize: 38 }]}>냉톡</Text>
             <Text style={s.text}>대화로 관리하는 냉장고와 레시피</Text>
             <View style={{ height: 28 }} />
-            <Button onPress={() => void handleGuestLogin()}>
-              {authBusy ? "로그인 중…" : "게스트 로그인(심사)"}
+            <Button loading={authBusy} onPress={() => void handleGuestLogin()}>
+              게스트 로그인(심사)
             </Button>
             <Button
               secondary
@@ -623,13 +682,6 @@ export default function NaengTalk() {
                       : "내 냉장고에 맞춘 생활"}
                 </Text>
               </View>
-            </View>
-            <View style={s.notice}>
-          <Text style={s.muted}>
-            {backendConfig.mode === "local"
-              ? "로컬 개발 검증 · AI / 클라우드 미연결"
-              : "게스트 원격 재고 연결됨 · GPT 메뉴 상담"}
-          </Text>
             </View>
             {timer}
             <ScrollView
@@ -739,21 +791,24 @@ export default function NaengTalk() {
                       ]}
                     >
                       <Text style={[s.text, item.role === "user" && { color: "white" }]}>
-                        {item.content}
+                        {breakSentences(item.content)}
                       </Text>
                     </View>
                   ))}
                   {aiBusy ? (
                     <View style={[s.card, { marginRight: 24 }]}>
-                      <Text accessibilityLiveRegion="polite" style={s.muted}>
-                        냉장고와 레시피를 확인하고 있어요…
-                      </Text>
+                      <View style={s.loadingRow}>
+                        <Text accessibilityLiveRegion="polite" style={[s.muted, { flex: 1 }]}>
+                          냉장고와 레시피를 확인하고 있어요…
+                        </Text>
+                        <ActivityIndicator size="small" color={color.green} />
+                      </View>
                     </View>
                   ) : null}
                   {state.recipe ? (
                     <View style={[s.card, { backgroundColor: color.soft }]}>
                       <Text style={s.title}>{state.recipe.title}</Text>
-                      <Text style={s.text}>{state.recipe.reason}</Text>
+                      <Text style={s.text}>{breakSentences(state.recipe.reason)}</Text>
                       <Button secondary onPress={openRecipe}>
                         레시피 전체 보기
                       </Button>
@@ -944,8 +999,8 @@ export default function NaengTalk() {
                   editable={!aiBusy}
                   onSubmitEditing={() => void handleSendChat()}
                 />
-                <Button onPress={() => void handleSendChat()}>
-                  {aiBusy ? "답변 중…" : "전송"}
+                <Button loading={aiBusy} onPress={() => void handleSendChat()}>
+                  전송
                 </Button>
               </View>
             )}
@@ -1001,7 +1056,7 @@ export default function NaengTalk() {
                 <Text style={s.muted}>
                   제공일 {state.providedAt.replaceAll("-", ". ")} · {activeRecipe.servings}인분 · {activeRecipe.minutes}분
                 </Text>
-                <Text style={s.badge}>{activeRecipe.difficulty} · {activeRecipe.reason}</Text>
+                <Text style={s.badge}>{breakSentences(activeRecipe.reason)}</Text>
                 <View style={s.card}>
                   <Text style={s.title}>준비 재료</Text>
                   {activeRecipe.ingredients.map((ingredient, index) => (
@@ -1019,7 +1074,7 @@ export default function NaengTalk() {
                     <Text style={[s.title, { fontSize: 16 }]}>
                       {formatCookingStepTitle(i)}
                     </Text>
-                    <Text style={s.text}>{step.text}</Text>
+                    <Text style={s.text}>{breakSentences(step.text)}</Text>
                     {step.minutes > 0 && (
                       <Button
                         secondary
@@ -1038,34 +1093,25 @@ export default function NaengTalk() {
                     )}
                   </View>
                 ))}
-                {activeRecipe.sources.length ? (
-                  <View style={s.card}>
-                    <Text style={s.title}>참고한 레시피</Text>
-                    {activeRecipe.sources.map((source, index) => (
-                      <Pressable
-                        accessibilityRole="link"
-                        key={`${source.url}-${index}`}
-                        onPress={() => void Linking.openURL(source.url)}
-                      >
-                        <Text style={[s.text, { color: color.green }]}>{source.title}</Text>
-                        <Text style={s.muted} numberOfLines={1}>{source.url}</Text>
-                      </Pressable>
-                    ))}
-                  </View>
-                ) : null}
                 {review && (
                   <View style={[s.card, { backgroundColor: color.soft }]}>
                     <Text style={s.title}>사용량을 확인해주세요</Text>
-                    {activeUsage.map((line) => (
-                      <Text key={line.ingredientId} style={s.text}>
-                        {
-                          state.inventory.find(
-                            (x) => x.id === line.ingredientId,
-                          )?.name
-                        }{" "}
-                        − {line.quantity}
-                        {line.unit}
-                      </Text>
+                    {usageDraft.map((line) => (
+                      <View key={line.ingredientId} style={s.usageRow}>
+                        <Text style={[s.text, { flex: 1 }]}>
+                          {state.inventory.find((x) => x.id === line.ingredientId)?.name}
+                        </Text>
+                        <TextInput
+                          accessibilityLabel={`${state.inventory.find((x) => x.id === line.ingredientId)?.name ?? "재료"} 사용량`}
+                          inputMode="decimal"
+                          value={line.quantityText}
+                          onChangeText={(quantityText) => setUsageDraft((current) => (
+                            updateUsageDraftQuantity(current, line.ingredientId, quantityText)
+                          ))}
+                          style={s.usageInput}
+                        />
+                        <Text style={s.text}>{line.unit}</Text>
+                      </View>
                     ))}
                     <Text style={s.muted}>
                       확정하면 현재 재고에서 차감합니다.
@@ -1086,6 +1132,7 @@ export default function NaengTalk() {
                     onPress={() => {
                       setDetail(false);
                       setReview(false);
+                      setUsageDraft([]);
                     }}
                   >
                     {tab === 3
@@ -1093,7 +1140,7 @@ export default function NaengTalk() {
                       : "채팅으로 돌아가기"}
                   </Button>
                 </View>
-                <Button onPress={() => setReview(true)}>요리 완료</Button>
+                <Button onPress={startUsageReview}>요리 완료</Button>
               </View>
             </SafeAreaView>
           </View>
@@ -1181,12 +1228,26 @@ export default function NaengTalk() {
                     multiline
                     style={[s.input, { minHeight: 110 }]}
                     placeholder="식품의 이름과 용량, 유통기한을 적어주세요."
+                    value={directInput}
+                    onChangeText={setDirectInput}
+                    editable={!purchaseBusy}
                   />
                   <Text style={s.muted}>
-                    AI 연동 후 분석·검수·등록을 활성화합니다. 현재는 재고를
-                    변경하지 않습니다.
+                    {breakSentences("AI가 입력 내용을 분석한 뒤 재고명, 수량, 권장 소진일을 보여드립니다. 확인 후 최종 등록할 수 있습니다.")}
                   </Text>
-                  <Button onPress={() => setError("AI 연결이 필요합니다.")}>
+                  {purchaseBusy ? (
+                    <View style={s.loadingRow}>
+                      <Text accessibilityLiveRegion="polite" style={[s.muted, { flex: 1 }]}>
+                        {purchaseProgress || "입력 내용을 분석하고 있어요"}…
+                      </Text>
+                      <ActivityIndicator size="small" color={color.green} />
+                    </View>
+                  ) : null}
+                  <Button
+                    loading={purchaseBusy}
+                    disabled={!directInput.trim()}
+                    onPress={() => void handleAnalyzeDirectInventory()}
+                  >
                     식품 등록
                   </Button>
                   <Text style={s.muted}>{error}</Text>
@@ -1194,7 +1255,7 @@ export default function NaengTalk() {
               ) : purchaseRows.length || purchaseFailures.length ? (
                 <>
                 <ScrollView showsVerticalScrollIndicator={false}>
-                  {purchaseRows.some((row) => row.needsReview) ? (
+                  {purchaseRows.some((row) => row.needsReview) || purchaseFailures.length ? (
                     <Text
                       accessibilityLiveRegion="polite"
                       style={{ color: "#a94232", fontWeight: "700", marginBottom: 12 }}
@@ -1203,7 +1264,7 @@ export default function NaengTalk() {
                     </Text>
                   ) : null}
                   <Text style={[s.muted, { marginBottom: 12 }]}>
-                    재고명, 수량, 권장 소진일을 확인해주세요. 원본 이미지는 저장하지 않습니다.
+                    {breakSentences("재고명, 수량, 권장 소진일을 확인해주세요. 원본 이미지는 저장하지 않습니다.")}
                   </Text>
                   {purchaseRows.map((row) => (
                     <View
@@ -1269,8 +1330,12 @@ export default function NaengTalk() {
                   {error ? <Text style={{ color: "#a94232", marginTop: 10 }}>{error}</Text> : null}
                 </ScrollView>
                 {purchaseRows.length ? (
-                  <Button onPress={() => void handleRegisterPurchase()}>
-                    {purchaseBusy ? "등록 중…" : "등록"}
+                  <Button
+                    loading={purchaseBusy}
+                    disabled={purchaseRows.some((row) => row.needsReview) || purchaseFailures.length > 0}
+                    onPress={() => void handleRegisterPurchase()}
+                  >
+                    등록
                   </Button>
                 ) : null}
                 <Button
@@ -1289,7 +1354,7 @@ export default function NaengTalk() {
                 <>
                 <ScrollView showsVerticalScrollIndicator={false}>
                   <Text style={[s.muted, { marginBottom: 12 }]}>
-                    심사용 샘플을 고르거나 직접 이미지를 등록하세요. 한 번에 최대 10장까지 분석합니다.
+                    {breakSentences("심사용 샘플을 고르거나 직접 이미지를 등록하세요. 한 번에 최대 10장까지 분석합니다.")}
                   </Text>
                   <View style={s.grid}>
                     {purchaseDemoAssets.map((sample) => {
@@ -1340,15 +1405,18 @@ export default function NaengTalk() {
                     </View>
                   ))}
                   {purchaseBusy ? (
-                    <Text accessibilityLiveRegion="polite" style={[s.text, { marginTop: 12 }]}>
-                      {purchaseProgress} 분석 중…
-                    </Text>
+                    <View style={[s.loadingRow, { marginTop: 12 }]}>
+                      <Text accessibilityLiveRegion="polite" style={[s.text, { flex: 1 }]}>
+                        {purchaseProgress} 분석 중…
+                      </Text>
+                      <ActivityIndicator size="small" color={color.green} />
+                    </View>
                   ) : null}
                   {error ? <Text style={{ color: "#a94232", marginTop: 10 }}>{error}</Text> : null}
                 </ScrollView>
                 {purchaseSelections.length ? (
-                  <Button onPress={() => void handleAnalyzePurchases()}>
-                    {purchaseBusy ? "분석 중…" : `선택한 이미지 분석 (${purchaseSelections.length})`}
+                  <Button loading={purchaseBusy} onPress={() => void handleAnalyzePurchases()}>
+                    {`선택한 이미지 분석 (${purchaseSelections.length})`}
                   </Button>
                 ) : null}
                 <Button secondary onPress={() => void handlePickPurchaseImages()}>
@@ -1358,7 +1426,7 @@ export default function NaengTalk() {
               ) : (
                 <>
                   <Text style={s.muted}>
-                    구매내역 캡처를 AI로 분석하거나 식품을 직접 입력할 수 있습니다.
+                    {breakSentences("구매내역 캡처를 AI로 분석하거나 식품을 직접 입력할 수 있습니다.")}
                   </Text>
                   <Button
                     onPress={() => {

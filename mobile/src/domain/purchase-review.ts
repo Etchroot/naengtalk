@@ -74,30 +74,8 @@ function hasValidFields(row: PurchaseReviewRow, today: string): boolean {
     && isValidUseByDate(row.useByDate, today);
 }
 
-function appendNote(note: string | null, addition: string): string {
-  return note ? `${note} · ${addition}` : addition;
-}
-
 function markDuplicateRows(rows: PurchaseReviewRow[]): PurchaseReviewRow[] {
-  const counts = new Map<string, Set<string>>();
-  for (const row of rows) {
-    const key = `${row.productName.trim().toLowerCase()}|${row.quantityText}`;
-    const sources = counts.get(key) ?? new Set<string>();
-    sources.add(row.sourceId);
-    counts.set(key, sources);
-  }
-  return rows.map((row) => {
-    const key = `${row.productName.trim().toLowerCase()}|${row.quantityText}`;
-    if ((counts.get(key)?.size ?? 0) < 2) return row;
-    if (row.internalNote?.includes('중복 가능')) return row;
-    return {
-      ...row,
-      needsReview: true,
-      originalNeedsReview: true,
-      importResolution: 'user_confirmed',
-      internalNote: appendNote(row.internalNote, '다른 이미지의 항목과 중복 가능'),
-    };
-  });
+  return rows;
 }
 
 function rowsFromAnalyses(analyses: PurchaseAnalysis[]): PurchaseReviewRow[] {
@@ -105,7 +83,7 @@ function rowsFromAnalyses(analyses: PurchaseAnalysis[]): PurchaseReviewRow[] {
     if (!item.isFood) return [];
     const quantityText = item.quantity !== null && item.unit ? `${item.quantity}${item.unit}` : '';
     const useByDate = item.recommendedUseBy ?? '';
-    const needsReview = item.needsReview || !quantityText || !useByDate || item.shelfLifeStatus === 'fallback';
+    const needsReview = !item.foodName.trim() || !quantityText || !useByDate;
     return [{
       id: `${sourceId}-${index}`,
       sourceId,

@@ -64,7 +64,7 @@ test('editing a complete review row clears its warning and records user_edited',
   assert.equal(updated.quantityText, '600g');
 });
 
-test('duplicate rows across screenshots stay visible and require confirmation', () => {
+test('complete duplicate rows across screenshots stay visible without blocking registration', () => {
   const buildPurchaseReviewRows = Reflect.get(review, 'buildPurchaseReviewRows');
   const rows = buildPurchaseReviewRows([
     { sourceId: 'page-1', items: [tofuItem] },
@@ -72,8 +72,7 @@ test('duplicate rows across screenshots stay visible and require confirmation', 
   ]);
 
   assert.equal(rows.length, 2);
-  assert.equal(rows.every((row: { needsReview: boolean }) => row.needsReview), true);
-  assert.equal(rows.every((row: { internalNote: string }) => row.internalNote.includes('중복 가능')), true);
+  assert.equal(rows.every((row: { needsReview: boolean }) => row.needsReview), false);
 });
 
 test('final payload rejects invalid dates and maps valid edited rows', () => {
@@ -115,4 +114,18 @@ test('adding a later analysis preserves edits already made to earlier rows', () 
 
   assert.equal(combined.find((row: { sourceId: string }) => row.sourceId === 'R1').quantityText, '250g');
   assert.equal(combined.length, 2);
+});
+
+test('a complete fallback estimate is editable but does not require manual correction', () => {
+  const buildPurchaseReviewRows = Reflect.get(review, 'buildPurchaseReviewRows');
+  const validatePurchaseReviewRows = Reflect.get(review, 'validatePurchaseReviewRows');
+  const [row] = buildPurchaseReviewRows([{ sourceId: 'R1', items: [{
+    ...tofuItem,
+    needsReview: true,
+    shelfLifeStatus: 'fallback',
+    internalNote: '보수적 추정일',
+  }] }]);
+
+  assert.equal(row.needsReview, false);
+  assert.deepEqual(validatePurchaseReviewRows([row], '2026-09-10'), []);
 });

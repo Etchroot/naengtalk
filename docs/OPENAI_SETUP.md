@@ -15,8 +15,10 @@
 - 구매내역 OCR 사용자별 하루 10회 서버 제한: migration 작성 완료
 - `OPENAI_API_KEY` Supabase secret 등록: 완료
 - `menu-chat`, `purchase-ocr` production 배포: 완료
+- 자연어 다중 재고 입력용 `inventory-parse`와 사용자별 하루 30회 제한: production 배포 완료
 - production 웹 게스트 로그인·GPT 메뉴 응답: 실환경 확인 완료
 - R1 구매내역 OCR·편집형 검수 화면: 실환경 확인 완료
+- R2 구매내역 OCR에서 원문에 없는 두부가 생성되지 않고 완전한 행은 등록 가능 상태로 표시되는지 실환경 확인 완료
 
 ## Secret 등록 절차
 
@@ -35,25 +37,27 @@ Supabase 문서 기준으로 secret은 저장 즉시 함수에서 사용할 수 
 pnpm dlx supabase@latest login
 pnpm dlx supabase@latest functions deploy menu-chat --project-ref ygdbvbjvnnoxyjeidnnj --use-api
 pnpm dlx supabase@latest functions deploy purchase-ocr --project-ref ygdbvbjvnnoxyjeidnnj --use-api
+pnpm dlx supabase@latest functions deploy inventory-parse --project-ref ygdbvbjvnnoxyjeidnnj --use-api
 ```
 
-GitHub 연동은 DB migration을 production branch에 적용하지만 Edge Function 배포 여부는 별도로 확인한다. Dashboard의 **Edge Functions** 목록에 `menu-chat`, `purchase-ocr`가 모두 보이고 상태가 배포됨이어야 한다.
+GitHub 연동은 DB migration을 production branch에 적용하지만 Edge Function 배포 여부는 별도로 확인한다. Dashboard의 **Edge Functions** 목록에 `menu-chat`, `purchase-ocr`, `inventory-parse`가 모두 보이고 상태가 배포됨이어야 한다.
 
 ## 최소 실환경 확인
 
 1. 웹 앱에서 새 게스트로 로그인한다.
 2. 채팅에 `20분 안에 두부로 얼큰한 메뉴 만들어줘`를 입력한다.
 3. AI 답변과 레시피 전체 보기가 나타나는지 확인한다.
-4. 출처가 열리고, 재료·단계·타이머가 표시되는지 확인한다.
+4. 사용자 화면에는 난이도·참고 출처 카드가 없고 재료·단계·타이머가 표시되는지 확인한다. 출처 데이터는 서버 내부 안전 근거로만 유지한다.
 5. `요리 완료` → 사용량 확정 후 두부 등 실제 재고가 한 번만 차감되는지 확인한다.
 6. 같은 완료 요청을 재시도해도 중복 차감되지 않는지 확인한다.
 7. 홈 또는 재고의 `재고 등록` → `구매내역 캡처 등록`에서 R1을 선택하고 `선택한 이미지 분석`을 누른다.
 8. 확인 필요 항목 우선 표시와 재고명·수량·권장 소진일 편집을 확인한다. OCR 원문·판정·비고는 사용자 화면에 노출되지 않는다.
 9. `확인된 식품 재고에 등록` 후 현재 게스트 재고에만 새 lot이 추가되는지 확인한다.
+10. `직접 입력`에 `애호박 1개, 당근 300g`처럼 입력해 같은 편집형 검수 화면이 열리는지 확인한다.
 
 실제 OpenAI 호출을 포함한 이 확인은 비용이 발생하므로 API 배포 후 한 번만 수행하고, 전체 E2E는 웹 배포와 APK 빌드 직전에 수행한다.
 
-2026-09-10 production 웹에서 `계란을 사용해서 10분 안에 간단히 먹고 싶어` 요청이 원격 재고를 반영한 단일 레시피 후보로 응답하는 것을 확인했다. R1 OCR은 비식품을 제외하고 두부 300g·두부 800g·깻잎 무쌈 300g·양념깻잎 120g·상추 200g을 편집 가능한 검수 목록으로 반환했다. R2~R5와 공용 소비기한 cache hit/miss는 최종 OCR 비교 단계에서 확인한다.
+2026-09-10 production 웹에서 `계란을 사용해서 10분 안에 간단히 먹고 싶어` 요청이 원격 재고를 반영한 단일 레시피 후보로 응답하는 것을 확인했다. R1 OCR은 비식품을 제외하고 두부 300g·두부 800g·깻잎 무쌈 300g·양념깻잎 120g·상추 200g을 편집 가능한 검수 목록으로 반환했다. 2026-09-11에는 R2에서 쌈채소 200g·1,200g과 대파 1,000g만 반환되어 원문에 없는 두부가 생성되지 않았고, 직접 입력 `애호박 1개, 당근 300g`도 각각 유효한 권장 소진일과 함께 검수 화면에 나타나는 것을 확인했다. R3~R5와 공용 소비기한 cache hit/miss는 APK 직전 최종 비교 단계에서 확인한다.
 
 ## 비용·남용 방지 기준
 

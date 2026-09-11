@@ -108,3 +108,28 @@ test('OpenAI OCR request uses the approved vision-only privacy and cost controls
   assert.equal('tools' in request, false);
   assert.equal(request.text.format.strict, true);
 });
+
+test('OCR response drops hallucinated items without text evidence and deduplicates one source row', () => {
+  const parsePurchaseOcrResponse = Reflect.get(purchaseOcr, 'parsePurchaseOcrResponse');
+  assert.equal(typeof parsePurchaseOcrResponse, 'function');
+
+  const parsed = parsePurchaseOcrResponse({
+    rawText: '친환경 대파 300g 1개\n국산 감자 1kg 1개',
+    items: [
+      {
+        productName: '친환경 대파 300g', foodName: '대파', quantity: 300, unit: 'g',
+        category: 'vegetable', confidence: 0.97, needsReview: false, note: null, isFood: true,
+      },
+      {
+        productName: '친환경 대파 300g', foodName: '대파', quantity: 300, unit: 'g',
+        category: 'vegetable', confidence: 0.91, needsReview: false, note: null, isFood: true,
+      },
+      {
+        productName: '풀무원 두부 300g', foodName: '두부', quantity: 300, unit: 'g',
+        category: 'tofu', confidence: 0.99, needsReview: false, note: null, isFood: true,
+      },
+    ],
+  });
+
+  assert.deepEqual(parsed.items.map((item: { foodName: string }) => item.foodName), ['대파']);
+});
