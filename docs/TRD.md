@@ -93,7 +93,7 @@ AI 실행 구조는 하이브리드로 고정한다. Android와 웹은 구매내
 - `public.import_recipe_catalog_batch(text, jsonb)`는 service role만 실행할 수 있고 한 번에 최대 500행을 `recipes → ingredients → steps` 순서로 자연키 upsert한다. 동적 테이블 SQL은 사용하지 않는다.
 - `public.verify_recipe_catalog()`는 원문 없이 테이블 건수, FK orphan 수와 자연키 중복 수만 반환한다.
 - `tools/import_recipe_catalog.py --validate-only`는 Git에서 제외된 `scripts/data`를 읽기 전용으로 검사한다. 2026-09-12 로컬 검증 결과는 recipes 1,684건, ingredients 18,920건, steps 9,542건, orphan 0, 중복 0이며 `MFDS_000799` 한 건만 ingredient 행이 없다.
-- migration은 2026-09-12 연결된 Supabase 프로젝트에 적용했다. 원격 데이터 적재와 멱등 재실행 검증은 로컬 프로세스에 `SUPABASE_URL`, `SUPABASE_SERVICE_ROLE_KEY`가 제공된 뒤 수행한다.
+- 기본 migration과 PostgREST JWT claims 보정 migration은 연결된 Supabase 프로젝트에 적용했다. 2026-09-13 원격 적재를 두 번 연속 실행해 매번 recipes 1,684건, ingredients 18,920건, steps 9,542건, orphan 0, 자연키 중복 0을 확인했다.
 - 이 단계는 Expo UI, 기존 Supabase 클라이언트, `menu-chat`과 현재 배포된 레시피 실행 경로를 변경하지 않는다.
 
 ### 날짜 출처

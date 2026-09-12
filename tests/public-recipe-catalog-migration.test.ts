@@ -6,6 +6,10 @@ const migrationUrl = new URL(
   '../supabase/migrations/202609120003_public_recipe_catalog.sql',
   import.meta.url,
 );
+const claimsFixMigrationUrl = new URL(
+  '../supabase/migrations/202609120004_fix_recipe_catalog_rpc_claims.sql',
+  import.meta.url,
+);
 
 function readMigration(): string {
   try {
@@ -16,6 +20,13 @@ function readMigration(): string {
 }
 
 const migration = readMigration();
+const claimsFixMigration = (() => {
+  try {
+    return readFileSync(claimsFixMigrationUrl, 'utf8').toLowerCase();
+  } catch {
+    return '';
+  }
+})();
 
 test('catalog tables stay isolated from the existing user recipe table', () => {
   assert.match(migration, /create schema if not exists recipe_catalog/);
@@ -76,6 +87,25 @@ test('catalog import is bounded, static, and callable only by service role', () 
   assert.match(
     migration,
     /grant execute on function public\.import_recipe_catalog_batch\(text, jsonb\)\s*to service_role/,
+  );
+});
+
+test('catalog RPC authorization supports current PostgREST JWT claims', () => {
+  assert.match(
+    claimsFixMigration,
+    /current_setting\('request\.jwt\.claims', true\)::jsonb\s*->>\s*'role'/,
+  );
+  assert.match(
+    claimsFixMigration,
+    /rename to import_recipe_catalog_batch_legacy/,
+  );
+  assert.match(
+    claimsFixMigration,
+    /rename to verify_recipe_catalog_legacy/,
+  );
+  assert.match(
+    claimsFixMigration,
+    /revoke all on function public\.import_recipe_catalog_batch_legacy\(text, jsonb\)[\s\S]*?from public, anon, authenticated, service_role/,
   );
 });
 
