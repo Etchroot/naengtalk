@@ -21,7 +21,7 @@
 | 구매내역 OCR | OpenAI `gpt-5.6-luna` 비전 + strict JSON schema | Android·웹 공통 텍스트 추출·상품 구조화 | 확정·구현 |
 | 백엔드 | Supabase Auth, Postgres, Storage, Edge Functions | 인증, 데이터, 이미지, 서버 로직 | 확정 |
 | AI 게이트웨이 | Supabase Edge Function + OpenAI Responses API adapter | 구조화, 대화, 검색 판단, 레시피 변형 | 제공자·구조·모델 조합 확정 |
-| 레시피 검색 | OpenAI `web_search` 도메인 제한 + 일반 웹 fallback | 만개의레시피·YouTube 주문형 근거 검색과 출처 제공 | 확정 |
+| 레시피 검색 | 비공개 Supabase `recipe_catalog` + Terra 생성 fallback | MFDS·MAFRA 구조화 레시피 우선 조회, 낮은 정확도에서 웹 검색 없이 생성 | 데이터 적재 설계 확정·검색 계약 후속 확정 |
 | Android 알림 | Expo 호환 알림 모듈 | 임박 재료 알림 | 구현 방식 미정 |
 | 배포 | EAS Hosting 무료 + 심사 기간 Supabase Pro | Expo 웹 production URL, Auth·Postgres·Storage·Edge Functions 상시 운영 | 확정 |
 
@@ -48,8 +48,8 @@ AI 실행 구조는 하이브리드로 고정한다. Android와 웹은 구매내
 
 - `purchase-ocr`: JWT·이미지·일일 한도를 검증하고 OpenAI 비전으로 텍스트·상품 후보를 구조화
 - `chat-orchestrator`: 대화 상태, 도구 선택, 응답 생성
-- `recipe-retrieve`: 사용자 요청의 구체성을 판정해 메뉴명 또는 임박 재료 1~2개로 쿼리를 만들고, `10000recipe.com` 허용 도메인 검색 최대 2회 후 `youtube-search → general-web-search` 순서로 근거와 출처 메타데이터 반환
-- `recipe-adapt`: 최대 3개 출처의 공통 조리 원리·안전 조건을 잠근 뒤 재고·알레르기·도구·시간 기준으로 재설계하고 변경 요약 반환
+- `recipe-retrieve`: 사용자 요청의 구체성을 판정해 메뉴명 또는 임박 재료로 비공개 `recipe_catalog`의 이름·구조화 재료를 검색하고 후보별 매칭 점수를 반환
+- `recipe-adapt`: 채택된 공공 레시피를 재고·알레르기·도구·시간 기준으로 변형하고, 적합한 후보가 없으면 웹 검색 없이 `gpt-5.6-terra` 생성 경로로 전환
 - `inventory-command`: 검증된 조회·변경·차감 명령 실행
 - `guest-bootstrap`: 최소 10종 재료·조미료·조리도구·새우 알레르기가 포함된 독립 게스트 데이터 생성과 초기화
 - `expiry-notification`: 임박 대상 계산과 알림 작업 생성
@@ -82,6 +82,9 @@ AI 실행 구조는 하이브리드로 고정한다. Android와 웹은 구매내
 | `user_allergens` | `id`, `owner_id`, `raw_label`, `allergen_id`, `match_status`, `match_confidence`, `created_at` | 사용자가 실제로 등록한 알레르기 항목. 기본 행은 생성하지 않음 |
 | `allergens` | `id`, `canonical_name`, `aliases`, `derived_ingredients`, `source_ref`, `version` | 등록된 항목에 대해서만 최종 레시피 검사에 사용하는 내부 정규화·동의어 사전 |
 | `shelf_life_rules` | `id`, `canonical_key`, `canonical_name`, `category`, `storage_method`, `package_state`, `duration_days`, `source_title`, `source_url`, `source_checked_at`, `evidence_type`, `confidence`, `status` | 정규화 재고명·보관·포장별 공용 권장 소진 기간 캐시. 인증 사용자는 활성 행만 읽고 서버만 쓴다. |
+| `recipe_catalog.recipes` | `recipe_id`, `source`, `name`, 분류·영양·이미지·팁·원본 필드 | 사용자 생성 `public.recipes`와 분리된 MFDS·MAFRA 공공 레시피 원본 |
+| `recipe_catalog.ingredients` | `id`, `recipe_id`, `ingredient_no`, `normalized_name`, `parent_ingredient`, `search_key`, 원본 필드 | 구조화 재료 검색과 레시피별 재료 상세 |
+| `recipe_catalog.steps` | `id`, `recipe_id`, `step_no`, `description`, 이미지·팁·원본 필드 | 순서가 보존된 공공 레시피 조리 단계 |
 
 ### 날짜 출처
 
@@ -181,17 +184,17 @@ OCR 원문과 구조화 검수 초안은 영구 테이블에 저장하지 않고
 2. 현재 재고 스냅샷, 임박 lot, 보유 조리도구, `user_allergens`와 최근 완료 메뉴를 조회한다.
 3. 등록 알레르기를 AI 입력과 검색 필터에 적용하고, 식품 안전·보유 조리도구·명시 시간 조건을 충족하지 못하는 후보를 먼저 제외한다.
 4. 구체 요청은 메뉴 의도·조리 가능성·재고 활용도·임박도를, 막연한 요청은 임박도·재고 활용도·추가 구매량·조리 부담을 순서대로 평가한다.
-5. 요청이 구체적이면 메뉴명·인분·시간·맛·도구 조건으로 검색 쿼리를 만들고, 막연하면 권장 소진일과 남은 양을 기준으로 핵심 재료 1~2개만 선택한다. 전체 재고 목록은 검색어에 넣지 않는다.
-6. OpenAI Responses API의 `web_search.filters.allowed_domains`를 `10000recipe.com`으로 제한해 상위 결과 3~5개를 받고, 재고·알레르기·조리도구·시간 조건으로 평가한다.
-7. 적합한 결과가 없으면 메뉴 동의어 또는 `양념·간`, `재료별 전처리`, `가열 방식`, `투입 순서` 중 부족한 조리 원리로 쿼리를 한 번만 수정한다. 만개의레시피 검색은 요청당 총 2회로 제한한다.
-8. 두 번의 검색에도 필요한 근거가 없으면 `web_search.filters.allowed_domains`를 `youtube.com`으로 바꿔 요청당 최대 1회 검색한다. 공개 제목·설명·검색 페이지에서 필요한 조리 근거가 확인되는 결과만 채택하고, 영상 내용을 직접 시청하거나 전문을 전사한 것으로 취급하지 않는다. 근거가 부족하면 도메인 제한을 해제한 일반 웹 검색으로 확장한다.
-9. 허용된 범위에서 최대 3개 근거를 비교해 공통 조리 원리, 필수 재료와 핵심 안전 조건을 판정하고 `locked_principles`로 고정한다. 재료와 단계를 고위험·저위험으로 분류하고 점수가 비슷해도 최상위 후보 1개와 핵심 추천 근거만 선택한다.
+5. 요청이 구체적이면 메뉴명·인분·시간·맛·도구 조건을, 막연하면 권장 소진일과 남은 양을 기준으로 핵심 재료를 구조화한다.
+6. 비공개 `recipe_catalog.recipes`와 `recipe_catalog.ingredients`의 `normalized_name`, `parent_ingredient`, `search_key`를 조회해 이름·보유 재료 포함 수·필수 조건으로 후보를 정렬한다.
+7. 후속 설계에서 확정할 정확도 임계값 이상인 최상위 공공 레시피 1개를 선택해 사용자 조건에 맞게 변형한다.
+8. 임계값을 충족하는 후보가 없으면 웹 검색을 호출하지 않고 `gpt-5.6-terra`가 사용자 재고·알레르기·조리도구·시간과 공용 레시피 지침을 바탕으로 레시피를 생성한다.
+9. DB 변형과 Terra 생성 결과 모두 필수 재료, 핵심 안전 조건과 고위험 조리 단계를 검증한다. 상세 점수식·생성 계약·재시도 기준은 공공데이터 적재 이후 별도 확정한다.
 10. 필수 재료가 없으면 레시피 생성을 멈추고 `구매 후 원래 메뉴`, `현재 재료 기반 대체 메뉴`, 검증된 경우의 `안전한 재료 대체` 분기를 생성한다.
-11. 사용자가 분기를 선택하면 AI가 출처 문장을 복제하지 않고 `locked_principles`를 지키며 사용량과 단계를 새 표현으로 재설계한다. 변경 사항은 `transformation_summary`에 구조화한다.
+11. 사용자가 분기를 선택하면 AI가 공공 레시피 후보 또는 Terra 생성 초안을 기반으로 사용량과 단계를 새 표현으로 설계한다. 변경 사항은 `transformation_summary`에 구조화한다.
    레시피 생성은 공용 `recipe-guidelines` 지침 모듈을 사용하며 조리도구 세척 지시, 내부 차감 규칙 노출, 비조리 작업 또는 1분 이하 작업의 타이머 생성을 금지한다.
-12. 검증기가 최종 재료와 `allergens.aliases`를 대조한 뒤 재고 초과 사용, 누락 필수 재료, 보유하지 않은 필수 조리도구, 비정상 단위, 시간 불일치를 검사한다. 고위험 재료·단계는 출처 근거 연결이 없으면 즉시 거절하고 다른 후보로 전환한다.
+12. 검증기가 최종 재료와 `allergens.aliases`를 대조한 뒤 재고 초과 사용, 누락 필수 재료, 보유하지 않은 필수 조리도구, 비정상 단위, 시간 불일치와 고위험 조리 안전 조건을 검사한다. 실패한 결과는 사용자에게 제시하지 않는다.
 13. 레시피 재료·조미료를 계량 단위로 정규화하고, 수치와 환산 근거가 있으면 `deduction_status=ready`, 불확실하거나 근거가 없으면 `review_required`로 분류한다.
-14. 사용자에게 레시피, 예상 차감량, 대표 출처 1개와 접힌 추가 출처를 제시한다. `transformation_summary`는 내부 검증·추적에만 사용하고 사용자 화면에는 노출하지 않는다.
+14. 사용자에게 레시피와 예상 차감량을 제시한다. `transformation_summary`와 공공 DB·Terra 생성 경로 구분은 내부 검증·추적에만 사용하고 사용자 화면에는 노출하지 않는다.
 15. 사용자가 조리를 시작하면 `cooking_sessions`와 기본 사용량 원장을 만들고, 조리 중 발화는 `cooking_session_usage`의 delta로만 기록한다. 취소 발화는 기존 delta를 상쇄하는 이벤트로 남긴다.
 16. 완료 시 기본 사용량과 delta를 합산하고, `ready` 항목은 차감 미리보기에 자동 포함하며 `review_required` 항목만 수정·제외하게 한다. 확정 후 idempotency key를 사용해 재고 이벤트와 완료 레시피를 하나의 트랜잭션으로 기록한다.
 
@@ -298,10 +301,10 @@ Android 세션은 OS가 보호하는 비밀 저장소를 사용하는 Expo 호�
 - 필수 필드와 JSON 스키마 검증
 - 조리도구 필수 조건과 허용된 대체 조리 규칙 검증
 - 등록 알레르기 정규화, 레시피 최종 재료·동의어 대조와 차단
-- 출처 메타데이터 저장, 중복 URL 제거, 허용 범위가 확인되지 않은 본문·이미지의 저장 차단
-- 만개의레시피 검색 캐시를 검색어·제목·출처명·URL·확인 시각으로 제한하고 외부 본문·이미지·전체 조리 과정 저장 차단
-- `locked_principles` 준수 여부와 원본 근거에 없는 위험한 조리 단축·가열 생략 차단
-- 고위험 재료·단계의 출처 근거 존재 여부와 저위험 변경 허용 목록 검사
+- 공공 카탈로그의 원천 메타데이터 보존과 외부 원문·이미지의 무단 추가 저장 차단
+- 비공개 `recipe_catalog`에 대한 클라이언트 직접 접근 차단과 제한된 검색 결과 계약 검증
+- 공공 DB 변형·Terra 생성 모두에서 위험한 조리 단축·가열 생략 차단
+- 고위험 재료·단계의 안전 조건과 저위험 변경 허용 목록 검사
 
 ### 출력 계약
 
@@ -311,7 +314,7 @@ Android 세션은 OS가 보호하는 비밀 저장소를 사용하는 Expo 호�
 
 - MVP의 유일한 생성형 AI 제공자는 OpenAI이며, 모든 GPT 호출은 Responses API를 사용한다. Gemini 등 타사 생성형 AI 모델은 정상 경로와 장애 대체 경로에 포함하지 않는다.
 - `fast` 경로는 `gpt-5.6-luna`를 사용해 상품·조리도구 구조화, 재고 발화 해석과 단순 대화를 처리한다.
-- `quality` 경로는 `gpt-5.6-terra`를 사용해 검색 근거 판단, 한국어 레시피 재설계와 복잡한 후속 대화를 처리한다.
+- `quality` 경로는 `gpt-5.6-terra`를 사용해 공공 레시피 후보 변형, 카탈로그 정확도 미달 시 신규 레시피 생성과 복잡한 후속 대화를 처리한다.
 - Luna 출력의 스키마 실패, 낮은 신뢰도 또는 규칙 검증 실패가 발생하면 요청당 최대 한 번 Terra로 승격한다. Terra도 실패하면 사용자 확인 또는 명확한 실패 상태로 전환한다.
 - OpenAI adapter가 Responses API 요청, 구조화 출력, 도구 호출, 사용량 메타데이터를 내부 계약으로 정규화한다.
 - 모델 ID는 `gpt-5.6-luna`와 `gpt-5.6-terra`로 고정한다. 2026-09-01 공식 표시 가격은 Luna가 입력 `$0.20`·출력 `$1.20`, Terra가 입력 `$2.00`·출력 `$12.00`/100만 토큰이며, 구현 시작과 제출 직전에 가격·가용성을 다시 확인한다.
@@ -323,7 +326,7 @@ Android 세션은 OS가 보호하는 비밀 저장소를 사용하는 Expo 호�
 - ChatGPT Pro 구독과 OpenAI API 사용량은 별도이며, 냉톡의 GPT 호출 비용은 프로젝트의 OpenAI API 결제 계정에 청구된다.
 - `OPENAI_API_KEY`는 사용자가 발급했으며 Supabase Edge Function secret으로만 등록한다. 등록 절차는 `docs/OPENAI_SETUP.md`를 따른다.
 - 키는 Supabase 프로젝트 secret으로만 저장하고 Expo 앱, 웹 번들, 저장소, 로그와 문서에 포함하지 않는다.
-- 게스트를 포함해 사용자별 하루 30회의 원자적 rate limit을 DB 함수로 적용한다. 최근 대화 6개·메시지 500자, Luna 출력 500토큰, Terra 출력 1,800토큰, 28초 제한과 검색 실패 시 한 번의 fallback을 적용한다.
+- 게스트를 포함해 사용자별 하루 30회의 원자적 rate limit을 DB 함수로 적용한다. 최근 대화 6개·메시지 500자, Luna 출력 500토큰, Terra 출력 1,800토큰과 28초 제한을 적용하며, 공공 DB 정확도 미달 시 Terra 생성은 요청당 한 번만 수행한다.
 
 ## 7. API 경계 초안
 
@@ -392,7 +395,7 @@ Android 세션은 OS가 보호하는 비밀 저장소를 사용하는 Expo 호�
 - 모델 승격률과 작업별 토큰·지연·비용을 기록해 라우팅 기준을 조정한다.
 - 레시피 기본 데이터와 정규화 사전은 캐시 가능하게 설계한다.
 
-10명 × 하루 3회 × 7일의 210회 사용은 2026-09-09 공식 모델·웹 검색 가격과 제한된 토큰·fallback 기준으로 약 `$7~15`를 예상한다. OpenAI 월 사용 한도는 사용자가 `$20`로 설정했으며, 실제 배포 후 Usage의 Terra 비율·검색 호출·토큰으로 갱신한다.
+기존 210회 사용 비용 추정은 웹 검색 기반 구조의 값이므로 더 이상 현재 레시피 경로의 기준으로 사용하지 않는다. 공공 DB hit율과 Terra 생성 비율이 확정되면 최신 공식 모델 가격으로 다시 계산한다. OpenAI 월 사용 한도는 사용자가 `$20`로 설정했다.
 
 ## 12. 테스트 전략
 
@@ -456,7 +459,7 @@ Android 세션은 OS가 보호하는 비밀 저장소를 사용하는 Expo 호�
 ## 14. 기술 결정 대기 목록
 
 - Luna→Terra 승격 임계값과 평가 세트의 통과 기준
-- 만개의레시피 주문형 도메인 검색의 이용 허용 범위 또는 제휴 필요성
+- 공공 DB 후보 채택 점수·정확도 임계값과 Terra 생성 fallback 계약
 - 오류·가용성 모니터링 도구의 최종 선택
 - Android 알림 구현 방식
 - 단위 정규화 사전의 초기 범위
@@ -480,21 +483,16 @@ Android 세션은 OS가 보호하는 비밀 저장소를 사용하는 Expo 호�
 - Supabase Edge Function 보안: https://supabase.com/docs/guides/functions/auth
 - OpenAI 이미지·비전 입력: https://developers.openai.com/api/docs/guides/images-vision
 - Android AlarmClock: https://developer.android.com/reference/android/provider/AlarmClock
-- 만개의레시피: https://www.10000recipe.com/
-- 만개의레시피 이용약관: https://www.10000recipe.com/user/rules.html?f=contract
 - 식약처 소비기한 안내: https://www.mfds.go.kr/brd/m_827/view.do?seq=3616
 - 식품안전나라 식재료 보관 원칙: https://www.foodsafetykorea.go.kr/portalmobile/content/detail.do?bbs_no=bbs427&ntctxt_no=1069310
 - USDA FoodKeeper 데이터 안내: https://ask.fsis.usda.gov/article/Where-can-I-find-the-data-set-for-the-FoodKeeper-application
 - USDA FoodKeeper 데이터셋: https://catalog.data.gov/dataset/fsis-foodkeeper-data
-- YouTube Data API `search.list`: https://developers.google.com/youtube/v3/docs/search/list
 - OpenAI API Quickstart: https://developers.openai.com/api/docs/quickstart
 - OpenAI Responses API: https://platform.openai.com/docs/api-reference/responses/create
 - OpenAI Models: https://developers.openai.com/api/docs/models
 - OpenAI API Pricing: https://developers.openai.com/api/docs/pricing
 - OpenAI Web Search 도메인 필터: https://developers.openai.com/api/docs/guides/tools-web-search
 
-사용자 결정에 따라 식약처 레시피 API는 기본 원천에서 제외한다. 만개의레시피 전체 데이터 크롤러나 자체 레시피 DB는 만들지 않고, 요청 시 OpenAI 웹 검색의 허용 도메인을 `10000recipe.com`으로 제한해 필요한 결과만 찾는다. 만개의레시피 약관은 서비스에서 얻은 정보의 무단 복제·유통·영리 이용을 제한하므로 본문·이미지·전체 조리 과정을 저장하거나 재배포하지 않고 검색어·제목·출처명·URL·확인 시각만 캐시한다. 이 구조도 이용 허락을 자동으로 의미하지 않으므로 회사의 확인, 제휴 또는 약관·robots 정책상 허용 범위를 구현 전에 다시 검증한다.
-
-YouTube fallback은 별도 YouTube Data API와 Google API 키를 도입하지 않고 OpenAI Responses API의 `web_search`를 `youtube.com`으로 제한해 최대 1회 수행한다. 영상 제목·채널·URL·공개 설명처럼 검색으로 확인 가능한 텍스트만 근거로 이용하고, 영상 전체 다운로드·무단 전문 전사나 영상을 직접 시청한 것으로 가장하는 처리는 범위에서 제외한다. 텍스트 근거가 부족하면 일반 웹 `web_search`로 확장하고 전체 source URL 목록을 기록한다.
+2026-09-12 사용자 결정으로 기존 만개의레시피·YouTube·일반 웹 레시피 검색 경로는 폐기 대상으로 변경됐다. 사용자가 전처리한 MFDS·MAFRA 공공데이터를 비공개 `recipe_catalog`에 적재해 먼저 조회하고, 적합한 후보가 없거나 정확도가 임계값보다 낮으면 웹 검색 없이 `gpt-5.6-terra`가 레시피를 생성한다. 정확도 점수식과 Terra 생성·검증 계약은 데이터 적재 이후 별도 설계한다.
 
 구현 시작 시 공식 문서를 다시 확인하고 버전·제약을 고정한다.
