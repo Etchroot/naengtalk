@@ -24,3 +24,9 @@ export async function signOutSession(): Promise<void> {
   const { error } = await supabase.auth.signOut({ scope: "local" });
   if (error) throw error;
 }
+
+export async function resetRemoteGuestDemo(): Promise<void> {
+  if (!supabase) throw new Error("Supabase 연결 설정이 필요합니다.");
+  const { error } = await supabase.rpc("reset_guest_demo");
+  if (error) throw error;
+}

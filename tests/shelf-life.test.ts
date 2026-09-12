@@ -127,6 +127,25 @@ test('cached shelf-life rule enriches a food item without forcing review', () =>
   }]);
 });
 
+test('unopened room-temperature instant rice uses a conservative six-month curated rule', () => {
+  const defaultShelfLifeLookup = Reflect.get(shelfLife, 'defaultShelfLifeLookup');
+  const curatedShelfLifeRules = Reflect.get(shelfLife, 'curatedShelfLifeRules');
+  const enrichItemsWithShelfLife = Reflect.get(shelfLife, 'enrichItemsWithShelfLife');
+  assert.equal(typeof curatedShelfLifeRules, 'function');
+
+  const lookup = defaultShelfLifeLookup('즉석밥', 'prepared');
+  const rules = curatedShelfLifeRules([lookup], '2026-09-11T00:00:00.000Z');
+  assert.equal(rules.length, 1);
+  assert.equal(rules[0].durationDays, 180);
+  assert.equal(rules[0].sourceUrl, 'https://www.cj.co.kr/kr/support/faq/1939');
+
+  const [item] = enrichItemsWithShelfLife([
+    { foodName: '즉석밥', category: 'prepared', needsReview: false, note: null, isFood: true },
+  ], rules, '2026-09-11');
+  assert.equal(item.recommendedUseBy, '2027-03-10');
+  assert.equal(item.shelfLifeStatus, 'cached');
+});
+
 test('missing shelf-life rule keeps the food editable and review-required', () => {
   const enrichItemsWithShelfLife = Reflect.get(shelfLife, 'enrichItemsWithShelfLife');
   assert.equal(typeof enrichItemsWithShelfLife, 'function');

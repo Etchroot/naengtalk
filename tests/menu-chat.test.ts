@@ -42,6 +42,7 @@ test('menu chat response becomes a safe dynamic recipe and deduction list', () =
       ingredients: [
         { ingredientKey: 'kimchi', name: '김치', quantity: 150, unit: 'g', inInventory: true, requiredPurchase: false },
         { ingredientKey: 'tofu', name: '두부', quantity: 100, unit: 'g', inInventory: true, requiredPurchase: false },
+        { ingredientKey: 'soy', name: '간장', quantity: 1, unit: 'T', inInventory: true, requiredPurchase: false },
         { ingredientKey: null, name: '고춧가루', quantity: 10, unit: 'g', inInventory: false, requiredPurchase: true },
       ],
       steps: [{ text: '냄비에서 10분간 끓여주세요.', minutes: 10 }],
@@ -53,12 +54,64 @@ test('menu chat response becomes a safe dynamic recipe and deduction list', () =
   assert.deepEqual(recipeUsage(response.recipe!), [
     { ingredientId: 'kimchi', quantity: 150, unit: 'g' },
     { ingredientId: 'tofu', quantity: 100, unit: 'g' },
+    { ingredientId: 'soy', quantity: 15, unit: 'ml' },
   ]);
   const context = recipeContextMessage(response.recipe!);
   assert.equal(context.role, 'assistant');
   assert.match(context.content, /현재 제안 레시피: 김치 두부찌개/);
   assert.match(context.content, /김치 150g/);
   assert.equal(context.content.length <= 500, true);
+});
+
+test('teaspoon recipe quantities display as t and deduct as milliliters', () => {
+  const parseMenuChatResponse = Reflect.get(menuChat, 'parseMenuChatResponse');
+  const recipeUsage = Reflect.get(menuChat, 'recipeUsage');
+  const response = parseMenuChatResponse({
+    reply: '간을 맞춰요.',
+    recipe: {
+      title: '간장 달걀밥', reason: '간단해요.', servings: 1, minutes: 5, difficulty: '쉬움',
+      ingredients: [
+        { ingredientKey: 'soy', name: '간장', quantity: 2, unit: 't', inInventory: true, requiredPurchase: false },
+      ],
+      steps: [{ text: '간장을 섞어주세요.', minutes: 0 }],
+      sources: [{ title: '참고', url: 'https://example.org/recipe' }],
+    },
+  });
+
+  assert.equal(response.recipe?.ingredients[0].unit, 't');
+  assert.deepEqual(recipeUsage(response.recipe!), [
+    { ingredientId: 'soy', quantity: 10, unit: 'ml' },
+  ]);
+});
+
+test('one-minute recipe steps never expose a timer', () => {
+  const parseMenuChatResponse = Reflect.get(menuChat, 'parseMenuChatResponse');
+  const response = parseMenuChatResponse({
+    reply: '곧 완성돼요.',
+    recipe: {
+      title: '달걀밥', reason: '빠르게 만들어요.', servings: 1, minutes: 5, difficulty: '쉬움',
+      ingredients: [
+        { ingredientKey: 'egg', name: '계란', quantity: 1, unit: '개', inInventory: true, requiredPurchase: false },
+      ],
+      steps: [{ text: '밥과 계란을 1분간 섞어주세요.', minutes: 1 }],
+      sources: [{ title: '참고', url: 'https://example.org/recipe' }],
+    },
+  });
+
+  assert.equal(response.recipe?.steps[0].minutes, 0);
+});
+
+test('recipe AI instructions define measurement, timer, and hidden-system-copy rules', () => {
+  const buildRecipeInstructions = Reflect.get(edgeContract, 'buildRecipeInstructions');
+  assert.equal(typeof buildRecipeInstructions, 'function');
+  const instructions = buildRecipeInstructions(false);
+
+  assert.match(instructions, /15ml\s*=\s*1T/);
+  assert.match(instructions, /5ml\s*=\s*1t/);
+  assert.match(instructions, /조리도구를 세척/);
+  assert.match(instructions, /표시된 재고 재료만 차감/);
+  assert.match(instructions, /1분 이하/);
+  assert.match(instructions, /조리가 아닌 작업/);
 });
 
 test('invalid model quantities and units are rejected before UI or inventory use', () => {

@@ -90,6 +90,28 @@ export function defaultShelfLifeLookup(foodName: string, category: ShelfLifeCate
   return { canonicalKey, canonicalName: foodName.trim(), category, storageMethod, packageState };
 }
 
+export function curatedShelfLifeRules(
+  lookups: ShelfLifeLookup[],
+  sourceCheckedAt: string,
+): ShelfLifeRule[] {
+  return lookups.flatMap((lookup): ShelfLifeRule[] => {
+    if (
+      lookup.canonicalKey !== '즉석밥'
+      || lookup.storageMethod !== 'room_temperature'
+      || lookup.packageState !== 'unopened'
+    ) return [];
+
+    return [{
+      ...lookup,
+      durationDays: 180,
+      sourceTitle: 'CJ제일제당 햇반 미개봉 상온 9개월 보관 안내',
+      sourceUrl: 'https://www.cj.co.kr/kr/support/faq/1939',
+      sourceCheckedAt,
+      confidence: 0.95,
+    }];
+  });
+}
+
 export function partitionShelfLifeLookups(
   lookups: ShelfLifeLookup[],
   rules: ShelfLifeRule[],

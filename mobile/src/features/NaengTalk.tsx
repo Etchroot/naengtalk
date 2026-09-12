@@ -31,6 +31,7 @@ import {
   type CookingState,
 } from "../domain/cooking.ts";
 import { createGuestInventory } from "../domain/seed.ts";
+import { resetGuestDemoInventory } from "../domain/guest-demo.ts";
 import {
   getHomeActionTitleFontSize,
   getUrgentCardMinHeight,
@@ -61,6 +62,7 @@ import {
 import { backendConfig } from "../services/backend-config.ts";
 import {
   restoreRemoteSession,
+  resetRemoteGuestDemo,
   signInGuest,
   signOutSession,
 } from "../services/auth.ts";
@@ -335,6 +337,25 @@ export default function NaengTalk() {
       setTab(0);
     } catch {
       setError("로그아웃하지 못했습니다. 다시 시도해주세요.");
+    } finally {
+      setAuthBusy(false);
+    }
+  };
+  const handleResetDemo = async () => {
+    if (authBusy) return;
+    setAuthBusy(true);
+    setError("");
+    try {
+      const inventory = await resetGuestDemoInventory({
+        mode: backendConfig.mode,
+        date: new Date().toISOString().slice(0, 10),
+        resetRemote: resetRemoteGuestDemo,
+        loadRemote: loadRemoteInventory,
+      });
+      setState({ ...fresh(), inventory });
+      setTab(0);
+    } catch {
+      setError("샘플 데이터를 초기화하지 못했습니다. 다시 시도해주세요.");
     } finally {
       setAuthBusy(false);
     }
@@ -973,12 +994,9 @@ export default function NaengTalk() {
                   </View>
                   <Button
                     secondary
-                    onPress={() => {
-                      setState(fresh());
-                      setError("");
-                    }}
+                    onPress={() => void handleResetDemo()}
                   >
-                    샘플 데이터 초기화
+                    {authBusy ? "초기화 중…" : "샘플 데이터 초기화"}
                   </Button>
                   <Button
                     secondary

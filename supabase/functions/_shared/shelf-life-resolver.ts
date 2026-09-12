@@ -1,5 +1,6 @@
 import {
   buildShelfLifeSearchRequest,
+  curatedShelfLifeRules,
   defaultShelfLifeLookup,
   enrichItemsWithShelfLife,
   extractWebSourceUrls,
@@ -159,7 +160,13 @@ export async function resolveShelfLifeForOcr(
   } catch {
     cached = [];
   }
-  const { hits, misses } = partitionShelfLifeLookups(lookups, cached, new Date(`${config.baseDate}T00:00:00.000Z`));
+  const checkedAt = new Date().toISOString();
+  const curated = curatedShelfLifeRules(lookups, checkedAt);
+  const { hits, misses } = partitionShelfLifeLookups(
+    lookups,
+    [...cached, ...curated],
+    new Date(`${config.baseDate}T00:00:00.000Z`),
+  );
   let searched: ShelfLifeRule[] = [];
   try {
     searched = await searchMissingRules(misses, config);
@@ -169,7 +176,7 @@ export async function resolveShelfLifeForOcr(
   }
   const freshRules = [...hits.map(({ rule }) => rule), ...searched.map((rule) => ({
     ...rule,
-    sourceCheckedAt: new Date().toISOString(),
+    sourceCheckedAt: checkedAt,
   }))];
   return {
     ...result,

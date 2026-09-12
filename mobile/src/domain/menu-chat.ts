@@ -11,7 +11,7 @@ export type RecipeIngredient = {
   ingredientKey: string | null;
   name: string;
   quantity: number | null;
-  unit: 'g' | 'ml' | '개' | '대' | null;
+  unit: 'g' | 'ml' | 'T' | 't' | '개' | '대' | null;
   inInventory: boolean;
   requiredPurchase: boolean;
 };
@@ -96,7 +96,7 @@ export function parseMenuChatResponse(input: unknown): MenuChatResponse {
     const ingredientKey = ingredient.ingredientKey === null ? null : text(ingredient.ingredientKey, 100);
     const quantity = ingredient.quantity === null ? null : positiveNumber(ingredient.quantity);
     const unit = ingredient.unit;
-    if (unit !== null && unit !== 'g' && unit !== 'ml' && unit !== '개' && unit !== '대') invalidAiResponse();
+    if (unit !== null && unit !== 'g' && unit !== 'ml' && unit !== 'T' && unit !== 't' && unit !== '개' && unit !== '대') invalidAiResponse();
     if (typeof ingredient.inInventory !== 'boolean' || typeof ingredient.requiredPurchase !== 'boolean') invalidAiResponse();
     return {
       ingredientKey,
@@ -110,7 +110,8 @@ export function parseMenuChatResponse(input: unknown): MenuChatResponse {
   const steps = recipe.steps.map((item) => {
     if (!item || typeof item !== 'object') invalidAiResponse();
     const step = item as Record<string, unknown>;
-    return { text: text(step.text, 1000), minutes: nonnegativeNumber(step.minutes) };
+    const minutes = nonnegativeNumber(step.minutes);
+    return { text: text(step.text, 1000), minutes: minutes <= 1 ? 0 : minutes };
   });
   const sources = recipe.sources.map((item) => {
     if (!item || typeof item !== 'object') invalidAiResponse();
@@ -140,7 +141,11 @@ export function recipeUsage(recipe: MenuRecipe): Usage[] {
     .filter((item): item is RecipeIngredient & { ingredientKey: string; quantity: number; unit: Usage['unit'] } =>
       Boolean(item.ingredientKey && item.quantity && item.unit),
     )
-    .map((item) => ({ ingredientId: item.ingredientKey, quantity: item.quantity, unit: item.unit }));
+    .map((item) => item.unit === 'T'
+      ? { ingredientId: item.ingredientKey, quantity: item.quantity * 15, unit: 'ml' }
+      : item.unit === 't'
+        ? { ingredientId: item.ingredientKey, quantity: item.quantity * 5, unit: 'ml' }
+        : { ingredientId: item.ingredientKey, quantity: item.quantity, unit: item.unit });
 }
 
 export function recipeContextMessage(recipe: MenuRecipe): ChatMessage {

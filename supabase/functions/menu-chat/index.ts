@@ -1,5 +1,6 @@
 import {
   assertAllergenSafe,
+  buildRecipeInstructions,
   classifierSchema,
   recipeResponseSchema,
   sanitizeRequest,
@@ -87,7 +88,7 @@ async function generateRecipe(context: string, allergens: string[], fallback = f
     tools: [searchTool],
     tool_choice: 'required',
     include: ['web_search_call.action.sources'],
-    instructions: `당신은 1인 가구용 냉장고 레시피 도우미 냉톡이다. 반드시 웹 검색으로 레시피 근거를 확인한다. ${fallback ? '만개의레시피에 적합한 근거가 없었다. YouTube와 신뢰할 수 있는 일반 웹 자료로 확장한다.' : '10000recipe.com의 만개의레시피를 우선 근거로 사용한다.'} 현재 재고를 최대한 쓰되 사용자가 원하는 메뉴를 우선한다. 필수 재료가 없으면 requiredPurchase=true로 표시하고 구매를 제안한다. 재고 재료의 ingredientKey, 실제 차감 가능한 수량과 단위만 정확히 복사한다. 등록 알레르기를 절대 포함하지 않는다. 위험 식재료의 충분한 가열과 위생 단계를 포함한다. 한국어로 답하고 출처 원문을 복제하지 않는다.`,
+    instructions: buildRecipeInstructions(fallback),
     input: context,
     text: {
       format: {

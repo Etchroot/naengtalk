@@ -6,6 +6,8 @@ export type MenuChatRequest = {
   allergens: string[];
 };
 
+export { buildRecipeInstructions } from './recipe-guidelines.ts';
+
 function labels(value: unknown): string[] {
   if (!Array.isArray(value)) return [];
   return value
@@ -52,7 +54,7 @@ const ingredientSchema = {
     ingredientKey: { type: ['string', 'null'] },
     name: { type: 'string' },
     quantity: { type: ['number', 'null'] },
-    unit: { type: ['string', 'null'], enum: ['g', 'ml', '개', '대', null] },
+    unit: { type: ['string', 'null'], enum: ['g', 'ml', 'T', 't', '개', '대', null] },
     inInventory: { type: 'boolean' },
     requiredPurchase: { type: 'boolean' },
   },
