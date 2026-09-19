@@ -25,6 +25,7 @@ export type PurchaseReviewRow = {
   name: string;
   quantityText: string;
   useByDate: string;
+  storageMethod: PurchaseOcrItem['storageMethod'];
   needsReview: boolean;
   originalNeedsReview: boolean;
   edited: boolean;
@@ -39,6 +40,7 @@ export type InventoryImportItem = {
   unit: PurchaseOcrUnit;
   use_by_at: string;
   date_source: 'estimated' | 'user_override';
+  storage_method: PurchaseOcrItem['storageMethod'];
   import_resolution: 'auto' | 'user_confirmed' | 'user_edited';
   internal_note: string | null;
 };
@@ -91,6 +93,7 @@ function rowsFromAnalyses(analyses: PurchaseAnalysis[]): PurchaseReviewRow[] {
       name: item.foodName,
       quantityText,
       useByDate,
+      storageMethod: item.storageMethod,
       needsReview,
       originalNeedsReview: needsReview,
       edited: false,
@@ -122,12 +125,14 @@ export function appendPurchaseReviewRows(
 
 export function updatePurchaseReviewRow(
   row: PurchaseReviewRow,
-  patch: Partial<Pick<PurchaseReviewRow, 'name' | 'quantityText' | 'useByDate'>>,
+  patch: Partial<Pick<PurchaseReviewRow, 'name' | 'quantityText' | 'useByDate' | 'storageMethod'>>,
   today: string,
 ): PurchaseReviewRow {
   const updated: PurchaseReviewRow = {
     ...row,
     ...patch,
+    useByDate: patch.storageMethod !== undefined && patch.storageMethod !== row.storageMethod
+      ? '' : patch.useByDate ?? row.useByDate,
     edited: true,
     importResolution: 'user_edited',
   };
@@ -152,6 +157,7 @@ export function toInventoryImportPayload(rows: PurchaseReviewRow[], today: strin
       unit: parsed.unit,
       use_by_at: row.useByDate,
       date_source: row.edited ? 'user_override' : 'estimated',
+      storage_method: row.storageMethod,
       import_resolution: row.edited
         ? 'user_edited'
         : row.originalNeedsReview

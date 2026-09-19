@@ -24,6 +24,7 @@ test('remote cooking request consolidates usage and keeps a stable idempotency k
       { ingredient_key: 'tofu', quantity: 100, unit: 'g' },
     ],
     request_key: 'cook-20260909-0001',
+    share_after_completion: false,
   });
 });
 

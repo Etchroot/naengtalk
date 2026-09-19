@@ -8,3 +8,4 @@ dist/
 mobile/.git.nested-backup/
 supabase/.temp/
 /scripts/
+.vs/

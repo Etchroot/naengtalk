@@ -5,6 +5,7 @@ export type RemoteCookingRequest = {
   recipe_content: Record<string, unknown>;
   usage_lines: Array<{ ingredient_key: string; quantity: number; unit: string }>;
   request_key: string;
+  share_after_completion: boolean;
 };
 
 export function buildRemoteCookingRequest(input: {
@@ -12,12 +13,16 @@ export function buildRemoteCookingRequest(input: {
   content: Record<string, unknown>;
   usage: Usage[];
   requestKey: string;
+  shareAfterCompletion?: boolean;
 }): RemoteCookingRequest {
   const title = input.title.trim();
   const requestKey = input.requestKey.trim();
   if (!title) throw new Error('레시피 이름이 필요합니다.');
   if (requestKey.length < 8) throw new Error('유효한 요리 완료 요청 키가 필요합니다.');
   if (!input.usage.length) throw new Error('사용 재료를 확인해주세요.');
+  if (input.shareAfterCompletion && input.content.origin !== 'AI_GENERATED') {
+    throw new Error('AI 생성 레시피만 공유할 수 있습니다.');
+  }
 
   const consolidated = new Map<string, RemoteCookingRequest['usage_lines'][number]>();
   for (const line of input.usage) {
@@ -41,5 +46,6 @@ export function buildRemoteCookingRequest(input: {
     recipe_content: input.content,
     usage_lines: [...consolidated.values()],
     request_key: requestKey,
+    share_after_completion: Boolean(input.shareAfterCompletion),
   };
 }

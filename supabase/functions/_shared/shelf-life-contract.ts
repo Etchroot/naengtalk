@@ -25,18 +25,6 @@ export type ShelfLifeRule = ShelfLifeLookup & {
   confidence: number;
 };
 
-const fallbackDays: Record<ShelfLifeCategory, number> = {
-  tofu: 3,
-  leafy: 5,
-  mushroom: 5,
-  vegetable: 7,
-  fresh_meat: 2,
-  storage_vegetable: 14,
-  frozen: 30,
-  pantry: 30,
-  prepared: 30,
-};
-
 function normalizedName(value: string): string {
   return value
     .normalize('NFKC')
@@ -88,6 +76,22 @@ export function defaultShelfLifeLookup(foodName: string, category: ShelfLifeCate
     ? 'unpackaged'
     : 'unopened';
   return { canonicalKey, canonicalName: foodName.trim(), category, storageMethod, packageState };
+}
+
+export function shelfLifeLookupForItem(item: {
+  foodName: string;
+  productName?: string;
+  category: ShelfLifeCategory;
+}): ShelfLifeLookup {
+  const lookup = defaultShelfLifeLookup(item.foodName, item.category);
+  const original = item.productName ?? '';
+  if (/냉동/.test(original)) return { ...lookup, storageMethod: 'frozen' };
+  if (/냉장/.test(original)) return { ...lookup, storageMethod: 'refrigerated' };
+  return lookup;
+}
+
+export function hasConflictingStorage(productName: string | undefined): boolean {
+  return /냉동/.test(productName ?? '') && /냉장/.test(productName ?? '');
 }
 
 export function curatedShelfLifeRules(
@@ -197,12 +201,23 @@ export function buildShelfLifeSearchRequest(misses: ShelfLifeLookup[]) {
 
 export function parseShelfLifeSearchResponse(input: unknown, allowedSources: Set<string>): ShelfLifeRule[] {
   if (!isRecord(input) || !Array.isArray(input.rules)) return [];
+  const normalizedSources = new Set([...allowedSources].map((url) => {
+    try {
+      const parsed = new URL(url);
+      return `${parsed.origin}${parsed.pathname.replace(/\/+$/, '')}`;
+    } catch { return ''; }
+  }));
   return input.rules.slice(0, 20).flatMap((value): ShelfLifeRule[] => {
     if (!isRecord(value)) return [];
     const canonicalKey = normalizedName(safeText(value.canonicalKey, 80));
     const canonicalName = safeText(value.canonicalName, 100);
     const sourceTitle = safeText(value.sourceTitle, 200);
     const sourceUrl = safeText(value.sourceUrl, 500);
+    let normalizedSource = '';
+    try {
+      const parsed = new URL(sourceUrl);
+      normalizedSource = `${parsed.origin}${parsed.pathname.replace(/\/+$/, '')}`;
+    } catch { /* rejected below */ }
     const durationDays = typeof value.durationDays === 'number' && Number.isInteger(value.durationDays)
       ? value.durationDays
       : 0;
@@ -211,7 +226,7 @@ export function parseShelfLifeSearchResponse(input: unknown, allowedSources: Set
       : 0;
     if (
       !canonicalKey || !canonicalName || !sourceTitle || !sourceUrl.startsWith('https://')
-      || !allowedSources.has(sourceUrl) || durationDays < 1 || durationDays > 3650
+      || !normalizedSources.has(normalizedSource) || durationDays < 1 || durationDays > 3650
       || !isCategory(value.category) || !isStorageMethod(value.storageMethod)
       || !isPackageState(value.packageState)
     ) return [];
@@ -239,17 +254,18 @@ export function addDays(baseDate: string, durationDays: number): string {
   return date.toISOString().slice(0, 10);
 }
 
-export function buildShelfLifeFallback(lookup: ShelfLifeLookup, baseDate: string) {
+export function buildShelfLifeFallback(_lookup: ShelfLifeLookup, _baseDate: string) {
   return {
-    recommendedUseBy: addDays(baseDate, fallbackDays[lookup.category]),
+    recommendedUseBy: null,
     shelfLifeStatus: 'fallback' as const,
     needsReview: true,
-    internalNote: '공용 권장 소진일 기준을 찾지 못해 보수적인 임시값을 적용했습니다.',
+    internalNote: '검증된 공용 권장 소진일 기준을 찾지 못했습니다. 제품 표시일을 직접 입력해주세요.',
   };
 }
 
 export type ShelfLifeResolvableItem = {
   foodName: string;
+  productName?: string;
   category: ShelfLifeCategory;
   needsReview: boolean;
   note: string | null;
@@ -282,7 +298,18 @@ export function enrichItemsWithShelfLife<T extends ShelfLifeResolvableItem>(
         internalNote: item.note,
       };
     }
-    const lookup = defaultShelfLifeLookup(item.foodName, item.category);
+    if (hasConflictingStorage(item.productName)) {
+      return {
+        ...item,
+        recommendedUseBy: null,
+        shelfLifeStatus: 'fallback' as const,
+        needsReview: true,
+        storageMethod: null,
+        packageState: null,
+        internalNote: '냉장·냉동 상태가 함께 표시되어 있습니다. 실제 보관 상태와 제품 표시일을 확인해주세요.',
+      };
+    }
+    const lookup = shelfLifeLookupForItem(item);
     const rule = byKey.get(canonicalShelfLifeKey(lookup.canonicalKey, lookup.storageMethod, lookup.packageState));
     if (!rule) {
       const fallback = buildShelfLifeFallback(lookup, baseDate);

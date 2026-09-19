@@ -1,9 +1,10 @@
 import {
   buildShelfLifeSearchRequest,
   curatedShelfLifeRules,
-  defaultShelfLifeLookup,
+  shelfLifeLookupForItem,
   enrichItemsWithShelfLife,
   extractWebSourceUrls,
+  hasConflictingStorage,
   parseShelfLifeSearchResponse,
   partitionShelfLifeLookups,
   type ShelfLifeCategory,
@@ -13,6 +14,7 @@ import {
 
 type OcrItem = {
   foodName: string;
+  productName?: string;
   category: ShelfLifeCategory;
   needsReview: boolean;
   note: string | null;
@@ -58,8 +60,8 @@ function outputText(response: Record<string, unknown>): string {
 function uniqueLookups(items: OcrItem[]): ShelfLifeLookup[] {
   const byKey = new Map<string, ShelfLifeLookup>();
   for (const item of items) {
-    if (!item.isFood) continue;
-    const lookup = defaultShelfLifeLookup(item.foodName, item.category);
+    if (!item.isFood || hasConflictingStorage(item.productName)) continue;
+    const lookup = shelfLifeLookupForItem(item);
     byKey.set(`${lookup.canonicalKey}|${lookup.storageMethod}|${lookup.packageState}`, lookup);
   }
   return [...byKey.values()];
@@ -145,7 +147,10 @@ async function upsertRules(rules: ShelfLifeRule[], config: ResolverConfig): Prom
     headers: { ...cacheHeaders(config.serviceRoleKey), Prefer: 'resolution=merge-duplicates,return=minimal' },
     body: JSON.stringify(rows),
   });
-  if (!response.ok) throw new Error('SHELF_LIFE_CACHE_WRITE');
+  if (!response.ok) {
+    const failure = await response.json().catch(() => ({})) as { code?: string };
+    throw new Error(`SHELF_LIFE_CACHE_WRITE_${response.status}_${failure.code ?? 'unknown'}`);
+  }
 }
 
 export async function resolveShelfLifeForOcr(

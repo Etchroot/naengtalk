@@ -8,6 +8,7 @@ export type InventoryLotRow = {
   unit: string;
   use_by_at: string;
   date_source: string;
+  storage_method?: 'room_temperature' | 'refrigerated' | 'frozen' | null;
 };
 
 export function mapInventoryLotRows(rows: InventoryLotRow[]): InventoryItem[] {
@@ -23,6 +24,7 @@ export function mapInventoryLotRows(rows: InventoryLotRow[]): InventoryItem[] {
       unit: row.unit,
       useBy: row.use_by_at,
       estimated: row.date_source === 'estimated',
+      storageMethod: row.storage_method ?? null,
     };
   });
 }

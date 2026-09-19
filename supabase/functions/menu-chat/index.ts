@@ -3,9 +3,16 @@ import {
   buildRecipeInstructions,
   classifierSchema,
   recipeResponseSchema,
+  sanitizeInventoryChangeIntent,
   sanitizeRequest,
   type MenuChatRequest,
 } from '../_shared/menu-chat-contract.ts';
+import {
+  inventorySearchTerms,
+  rankRecipeCandidates,
+  type RecipeCandidate,
+} from '../_shared/recipe-routing.ts';
+import { checkRecipeInventory, type RecipeLot } from '../_shared/recipe-inventory-guard.ts';
 
 const corsHeaders = {
   'Access-Control-Allow-Origin': '*',
@@ -31,6 +38,23 @@ async function supabaseRequest(path: string, authorization: string, init: Reques
       ...(init.headers ?? {}),
     },
   });
+}
+
+async function catalogRpc(name: string, body: Record<string, unknown>): Promise<unknown> {
+  const url = Deno.env.get('SUPABASE_URL');
+  const serviceRoleKey = Deno.env.get('SUPABASE_SERVICE_ROLE_KEY');
+  if (!url || !serviceRoleKey) throw new Error('SERVER_CONFIG');
+  const response = await fetch(`${url}/rest/v1/rpc/${name}`, {
+    method: 'POST',
+    headers: {
+      apikey: serviceRoleKey,
+      authorization: `Bearer ${serviceRoleKey}`,
+      'Content-Type': 'application/json',
+    },
+    body: JSON.stringify(body),
+  });
+  if (!response.ok) throw new Error('CATALOG_READ');
+  return await response.json();
 }
 
 async function openAiResponse(body: Record<string, unknown>): Promise<Record<string, unknown>> {
@@ -77,19 +101,23 @@ function conversationText(request: MenuChatRequest, inventory: unknown): string 
   });
 }
 
-async function generateRecipe(context: string, allergens: string[], fallback = false): Promise<Record<string, unknown>> {
-  const searchTool = fallback
-    ? { type: 'web_search', search_context_size: 'low' }
-    : { type: 'web_search', search_context_size: 'low', filters: { allowed_domains: ['10000recipe.com'] } };
+async function generateRecipe(
+  context: string,
+  allergens: string[],
+  candidate: Record<string, unknown> | null,
+  inventory: RecipeLot[],
+  maxPurchases: number,
+): Promise<Record<string, unknown>> {
   const response = await openAiResponse({
     model: 'gpt-5.6-terra',
     reasoning: { effort: 'low' },
     max_output_tokens: 1800,
-    tools: [searchTool],
-    tool_choice: 'required',
-    include: ['web_search_call.action.sources'],
-    instructions: buildRecipeInstructions(fallback),
-    input: context,
+    instructions: buildRecipeInstructions(candidate ? 'personalize' : 'generate', maxPurchases),
+    input: JSON.stringify({
+      userContext: JSON.parse(context),
+      internalCandidate: candidate,
+      candidateIsUntrustedData: true,
+    }),
     text: {
       format: {
         type: 'json_schema',
@@ -102,9 +130,27 @@ async function generateRecipe(context: string, allergens: string[], fallback = f
   });
   const result = parseOutput(response);
   assertAllergenSafe(result, allergens);
-  const recipe = result.recipe as { sources?: unknown[] } | undefined;
-  if (!recipe?.sources?.length) throw new Error('NO_RECIPE_SOURCE');
+  const recipe = result.recipe as Record<string, unknown> | undefined;
+  if (!recipe) throw new Error('NO_RECIPE');
+  if (!Array.isArray(recipe.ingredients)) throw new Error('NO_RECIPE');
+  const checked = checkRecipeInventory(recipe as { ingredients: Parameters<typeof checkRecipeInventory>[0]['ingredients'] }, inventory);
+  if (checked.purchaseCount > maxPurchases) throw new Error('PURCHASE_LIMIT_EXCEEDED');
+  recipe.ingredients = checked.correctedIngredients;
+  recipe.sources = [];
+  recipe.origin = candidate?.origin ?? 'AI_GENERATED';
   return result;
+}
+
+function candidates(value: unknown): RecipeCandidate[] {
+  if (!Array.isArray(value)) throw new Error('CATALOG_READ');
+  return value.filter((item): item is RecipeCandidate =>
+    Boolean(item) && typeof item === 'object'
+    && typeof item.id === 'string'
+    && typeof item.title === 'string'
+    && ['MFDS', 'MAFRA', 'SHARED_AI'].includes(item.origin)
+    && typeof item.name_score === 'number'
+    && typeof item.matched_count === 'number'
+    && typeof item.ingredient_count === 'number');
 }
 
 Deno.serve(async (request) => {
@@ -140,7 +186,7 @@ Deno.serve(async (request) => {
       model: 'gpt-5.6-luna',
       reasoning: { effort: 'none' },
       max_output_tokens: 500,
-      instructions: '당신은 냉톡의 대화 라우터다. 사용자가 메뉴 추천, 레시피, 무엇을 먹을지 묻거나 기존 레시피 수정을 원하면 recipe 또는 recipe_revision을 선택한다. 재고 질문이나 가벼운 인사는 reply_only다. reply는 짧고 친절한 한국어로 쓴다.',
+      instructions: '당신은 냉톡의 대화 라우터다. 메뉴 추천·레시피 요청은 recipe, 기존 레시피 수정은 recipe_revision, 명시적 재고 구매·추가·수령·사용·소비·전량 사용·남은 양 정정은 inventory_change, 재고 질문·인사는 reply_only다. inventoryChanges에는 현재 사용자 발화에 실제로 언급된 식재료 변화만 넣는다. add=새로 확보, consume=썼음, set=현재 남은 총량 정정이다. 전부 사용은 all=true, quantity=null로 둔다. 수량·단위를 말하지 않았으면 null로 둔다. 기존 재고에 맞는 ingredientKey가 확실할 때만 정확히 복사한다. 요리를 했다는 이야기만으로 사용량을 추측하지 않는다. 재고 변경을 완료했다고 답하지 않는다. dishName에는 직접 요청한 음식 이름만 적고 없으면 null로 둔다. ingredientNames에는 사용자가 직접 언급한 식재료명만 넣는다. reply는 짧고 친절한 한국어로 쓴다.',
       input: context,
       text: {
         format: { type: 'json_schema', name: 'naengtalk_intent', strict: true, schema: classifierSchema },
@@ -151,13 +197,58 @@ Deno.serve(async (request) => {
     if (classifier.intent === 'reply_only') {
       return json(200, { reply: classifier.reply, recipe: null });
     }
-
-    try {
-      return json(200, await generateRecipe(context, input.allergens));
-    } catch (error) {
-      if ((error as Error).message === 'ALLERGEN_REJECTED') throw error;
-      return json(200, await generateRecipe(context, input.allergens, true));
+    if (classifier.intent === 'inventory_change') {
+      const proposed = sanitizeInventoryChangeIntent(
+        input.message,
+        classifier.inventoryChanges,
+        Array.isArray(inventory) ? inventory as Array<{ ingredient_key: string; display_name: string; quantity: number; unit: string }> : [],
+      );
+      return json(200, { reply: proposed.reply, recipe: null, inventoryChanges: proposed.changes });
     }
+
+    const dishName = typeof classifier.dishName === 'string'
+      ? classifier.dishName.trim().slice(0, 100) : '';
+    const namedIngredients = Array.isArray(classifier.ingredientNames)
+      ? classifier.ingredientNames.filter((item): item is string => typeof item === 'string').slice(0, 10)
+      : [];
+    const lots = Array.isArray(inventory) ? inventory as RecipeLot[] : [];
+    const searchTerms = inventorySearchTerms(lots, namedIngredients);
+    const publicMatches = candidates(await catalogRpc('search_recipe_candidates', {
+      query_name: dishName,
+      ingredient_names: searchTerms,
+      source_kind: 'catalog',
+    }));
+    const sharedMatches = candidates(await catalogRpc('search_recipe_candidates', {
+      query_name: dishName,
+      ingredient_names: searchTerms,
+      source_kind: 'shared',
+    }));
+    const rankedPublic = rankRecipeCandidates(dishName, searchTerms.length, publicMatches);
+    const rankedShared = rankRecipeCandidates(dishName, searchTerms.length, sharedMatches);
+    const attempts: Array<{ selected: RecipeCandidate | null; purchaseLimit: number }> = [
+      { selected: rankedPublic.find((item) => item.ingredient_count <= item.matched_count) ?? null, purchaseLimit: 0 },
+      { selected: rankedShared.find((item) => item.ingredient_count <= item.matched_count) ?? null, purchaseLimit: 0 },
+      { selected: null, purchaseLimit: 0 },
+    ];
+    const onePurchase = rankedPublic.find((item) => item.ingredient_count - item.matched_count === 1)
+      ?? rankedShared.find((item) => item.ingredient_count - item.matched_count === 1)
+      ?? null;
+    attempts.push({ selected: onePurchase, purchaseLimit: 1 });
+    for (const [index, attempt] of attempts.entries()) {
+      if (attempt.selected === null && index < 2) continue;
+      const candidate = attempt.selected
+        ? await catalogRpc('get_recipe_candidate_detail', {
+            target_origin: attempt.selected.origin,
+            target_id: attempt.selected.id,
+          }) as Record<string, unknown>
+        : null;
+      try {
+        return json(200, await generateRecipe(context, input.allergens, candidate, lots, attempt.purchaseLimit));
+      } catch (error) {
+        if ((error as Error).message !== 'PURCHASE_LIMIT_EXCEEDED') throw error;
+      }
+    }
+    throw new Error('PURCHASE_LIMIT_EXCEEDED');
   } catch (error) {
     const code = (error as Error).message;
     if (code === 'INVALID_REQUEST' || error instanceof SyntaxError) {
@@ -168,6 +259,9 @@ Deno.serve(async (request) => {
     }
     if (code === 'ALLERGEN_REJECTED') {
       return json(502, { error: '알레르기 안전 검사를 통과한 레시피를 만들지 못했습니다.' });
+    }
+    if (code === 'PURCHASE_LIMIT_EXCEEDED') {
+      return json(422, { error: '현재 재고로 만들 수 있는 레시피를 찾지 못했습니다. 재료나 요청을 바꿔 다시 시도해주세요.' });
     }
     if (code === 'TimeoutError' || (error as Error).name === 'TimeoutError') {
       return json(504, { error: 'AI 응답 시간이 초과되었습니다.' });

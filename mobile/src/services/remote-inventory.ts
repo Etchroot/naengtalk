@@ -6,7 +6,7 @@ export async function loadRemoteInventory(): Promise<InventoryItem[]> {
   if (!supabase) throw new Error('Supabase 연결 설정이 필요합니다.');
   const { data, error } = await supabase
     .from('inventory_lots')
-    .select('id, ingredient_key, display_name, quantity, unit, use_by_at, date_source')
+    .select('id, ingredient_key, display_name, quantity, unit, use_by_at, date_source, storage_method')
     .gt('quantity', 0)
     .order('use_by_at', { ascending: true });
   if (error) throw error;

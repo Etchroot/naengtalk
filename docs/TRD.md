@@ -21,7 +21,7 @@
 | 구매내역 OCR | OpenAI `gpt-5.6-luna` 비전 + strict JSON schema | Android·웹 공통 텍스트 추출·상품 구조화 | 확정·구현 |
 | 백엔드 | Supabase Auth, Postgres, Storage, Edge Functions | 인증, 데이터, 이미지, 서버 로직 | 확정 |
 | AI 게이트웨이 | Supabase Edge Function + OpenAI Responses API adapter | 구조화, 대화, 검색 판단, 레시피 변형 | 제공자·구조·모델 조합 확정 |
-| 레시피 검색 | 비공개 Supabase `recipe_catalog` + Terra 생성 fallback | MFDS·MAFRA 구조화 레시피 우선 조회, 낮은 정확도에서 웹 검색 없이 생성 | 데이터 적재 설계 확정·검색 계약 후속 확정 |
+| 레시피 검색 | 비공개 Supabase `recipe_catalog` + 공유 AI 레시피 + Terra 생성 fallback | MFDS·MAFRA 구조화 레시피 우선, 공유 AI 레시피 차순위, 낮은 정확도에서 웹 검색 없이 Terra 생성 | SQL·Edge Function 구현, 원격 검증 중 |
 | Android 알림 | Expo 호환 알림 모듈 | 임박 재료 알림 | 구현 방식 미정 |
 | 배포 | EAS Hosting 무료 + 심사 기간 Supabase Pro | Expo 웹 production URL, Auth·Postgres·Storage·Edge Functions 상시 운영 | 확정 |
 
@@ -85,6 +85,7 @@ AI 실행 구조는 하이브리드로 고정한다. Android와 웹은 구매내
 | `recipe_catalog.recipes` | `recipe_id`, `source`, `name`, 분류·영양·이미지·팁·원본 필드 | 사용자 생성 `public.recipes`와 분리된 MFDS·MAFRA 공공 레시피 원본 |
 | `recipe_catalog.ingredients` | `id`, `recipe_id`, `ingredient_no`, `normalized_name`, `parent_ingredient`, `search_key`, 원본 필드 | 구조화 재료 검색과 레시피별 재료 상세 |
 | `recipe_catalog.steps` | `id`, `recipe_id`, `step_no`, `description`, 이미지·팁·원본 필드 | 순서가 보존된 공공 레시피 조리 단계 |
+| `recipe_catalog.shared_recipes` | `id`, `origin_recipe_id`, `title`, `content`, `ingredient_names` | 사용자 동의·요리 완료된 AI 생성 레시피의 개인정보 제거 독립 사본. 개인 레시피 삭제와 무관하게 유지 |
 
 ### 공공 레시피 카탈로그 적재 구현 상태
 
@@ -108,11 +109,12 @@ UI는 `estimated`를 소비기한으로 표현하지 않고 `권장 소진일(�
 ### 날짜 계산
 
 - 날짜 파이프라인은 OCR 텍스트의 공식 표시일을 우선하고, 표시일이 없으면 `canonical_key + storage_method + package_state`로 공용 `shelf_life_rules`를 조회한다.
+- 다음 개정에서는 OCR·직접 입력·채팅 추가의 원문 품목 구절에서 `냉동`·`냉장`을 결정적으로 식별하고 식품군과 무관하게 `storage_method`를 우선한다. `foodName`과 보관 상태를 분리하고 새 `inventory_lots`에도 상태를 보존한다. 기존 lot은 근거 없이 일괄 재분류하지 않는다.
 - `즉석밥 + room_temperature + unopened`은 제조사 공식 9개월 보관 안내를 근거로 D+180의 보수적 curated 규칙을 우선 적용한다. 실제 포장 표시일·사용자 입력일은 이 규칙보다 우선한다.
 - 계란·우유처럼 `date_entry_recommended`로 설정된 식재료는 검수 화면에서 공식 표시일 직접 입력을 유도한다. 사용자가 `지금은 모르겠어요`를 선택하면 등록은 허용하고 보수적 추정 규칙을 적용한다.
 - AI 구조화 결과는 정규화 식재료명, 식품군, 냉장·냉동·실온 후보와 개봉 상태 후보를 제공한다.
 - 활성 캐시가 없거나 `source_checked_at`이 365일 이상 지난 경우에만 서버가 `gpt-5.6-terra`의 제한된 `web_search`를 호출한다. 응답 URL이 도구가 실제 반환한 HTTPS 출처 목록에 포함되고 기간·신뢰도 검증을 통과할 때만 service role로 upsert한다.
-- 검색 실패 시 식품군별 짧은 fallback 기간을 사용하지만 해당 행은 `확인 필요`로 반환하고 공용 DB에는 저장하지 않는다.
+- 다음 개정에서는 검색 실패 또는 출처 검증 실패 시 식품군별 30일 기본값을 등록 가능한 날짜로 채우지 않고 날짜를 비워 사용자 확인을 받는다. 개인이 입력한 날짜는 공용 규칙으로 upsert하지 않는다.
 - 기준표는 식약처·식품안전나라의 국내 표시·보관 원칙을 우선하고, 개별 비포장 식재료의 냉장·냉동·실온 기간은 USDA FoodKeeper 공개 데이터를 보완 근거로 사용한다.
 - 원천이 기간 범위를 제공하면 `duration_days`에는 짧은 값을 저장한다. 각 규칙은 원천 URL·원천 버전·적용 보관 상태를 함께 기록하며, 참고값을 공식 소비기한으로 승격하지 않는다.
 - 육류·생선처럼 보관 상태가 불명확한 고위험 식품은 더 짧은 냉장 규칙을 기본값으로 사용한다.
@@ -174,8 +176,11 @@ OCR 원문과 구조화 검수 초안은 영구 테이블에 저장하지 않고
 2. 서버가 사용자 세션과 pantry 권한을 확인한다.
 3. AI는 자유 SQL이 아닌 허용된 도구 스키마만 선택한다.
 4. 서버가 명령을 검증하고 조회 결과 또는 변경 미리보기를 반환한다.
-5. 단일 명시 변경은 이벤트를 남기고 적용하며 취소 토큰을 반환한다.
-6. 다중 변경은 사용자의 재확인 요청이 있어야 적용한다.
+5. `menu-chat`은 `inventory_change`를 식별해 재료명·동작(`add`/`consume`/`set`)·수량·단위만 반환한다. 이 단계는 DB 쓰기 권한이 없으며 완료를 주장하지 않는다.
+6. 앱은 현재 사용자 재고 lot을 다시 읽어 변경안을 만들고, 추가 품목은 기존 `inventory-parse`로 권장 소진일을 보완한다. 모든 행의 재료명·수량과 추가 품목의 날짜를 편집·검증한 뒤 명시적 승인을 받는다.
+7. 승인 후 `apply_chat_inventory_change(request_key, changes)` RPC가 `auth.uid()` 소유 lot만 잠그고 전체 명령을 선검증한다. 초과 소비는 쓰기 없이 `needs_confirmation`과 실제 잔량을 돌려준다. 전량 확인 후 잔량으로 제한한 명령을 동일 키로 재시도한다.
+8. RPC는 추가를 먼저 적용하고 소비는 권장 소진일이 빠른 lot부터 차감한다. 등록되지 않은 품목의 소비는 무시한다. 재고 lot과 `inventory_events`는 단일 트랜잭션이며 동일 idempotency key 재시도는 중복 반영하지 않는다.
+9. `complete_cooking`도 동일한 사용자별 잠금과 만료일 우선 다중 lot 차감을 사용한다. 레시피의 합산 사용량이 한 lot의 수량을 넘더라도 여러 lot의 총량 안이면 원자적으로 차감하고, 부족하면 전체 완료를 롤백한다.
 
 ### 대화 보존과 삭제
 
@@ -196,8 +201,8 @@ OCR 원문과 구조화 검수 초안은 영구 테이블에 저장하지 않고
 4. 구체 요청은 메뉴 의도·조리 가능성·재고 활용도·임박도를, 막연한 요청은 임박도·재고 활용도·추가 구매량·조리 부담을 순서대로 평가한다.
 5. 요청이 구체적이면 메뉴명·인분·시간·맛·도구 조건을, 막연하면 권장 소진일과 남은 양을 기준으로 핵심 재료를 구조화한다.
 6. 비공개 `recipe_catalog.recipes`와 `recipe_catalog.ingredients`의 `normalized_name`, `parent_ingredient`, `search_key`를 조회해 이름·보유 재료 포함 수·필수 조건으로 후보를 정렬한다.
-7. 후속 설계에서 확정할 정확도 임계값 이상인 최상위 공공 레시피 1개를 선택해 사용자 조건에 맞게 변형한다.
-8. 임계값을 충족하는 후보가 없으면 웹 검색을 호출하지 않고 `gpt-5.6-terra`가 사용자 재고·알레르기·조리도구·시간과 공용 레시피 지침을 바탕으로 레시피를 생성한다.
+7. 명시 메뉴는 이름 완전 일치 또는 이름 부분 일치와 재료 일치가 있는 공공 후보 1개를 선택한다. 막연한 요청은 구조화 재료 2개 이상, 매칭 비율 60% 이상을 요구한다.
+8. 공공 후보가 임계값에 미달하면 공유 AI 레시피를 2순위로 조회한다. 이 후보도 미달하면 웹 검색 없이 `gpt-5.6-terra`가 사용자 재고·알레르기·조리도구·시간과 공용 지침으로 생성한다. Luna는 요청 분류에만 사용한다.
 9. DB 변형과 Terra 생성 결과 모두 필수 재료, 핵심 안전 조건과 고위험 조리 단계를 검증한다. 상세 점수식·생성 계약·재시도 기준은 공공데이터 적재 이후 별도 확정한다.
 10. 필수 재료가 없으면 레시피 생성을 멈추고 `구매 후 원래 메뉴`, `현재 재료 기반 대체 메뉴`, 검증된 경우의 `안전한 재료 대체` 분기를 생성한다.
 11. 사용자가 분기를 선택하면 AI가 공공 레시피 후보 또는 Terra 생성 초안을 기반으로 사용량과 단계를 새 표현으로 설계한다. 변경 사항은 `transformation_summary`에 구조화한다.
@@ -207,6 +212,10 @@ OCR 원문과 구조화 검수 초안은 영구 테이블에 저장하지 않고
 14. 사용자에게 레시피와 예상 차감량을 제시한다. `transformation_summary`와 공공 DB·Terra 생성 경로 구분은 내부 검증·추적에만 사용하고 사용자 화면에는 노출하지 않는다.
 15. 사용자가 조리를 시작하면 `cooking_sessions`와 기본 사용량 원장을 만들고, 조리 중 발화는 `cooking_session_usage`의 delta로만 기록한다. 취소 발화는 기존 delta를 상쇄하는 이벤트로 남긴다.
 16. 완료 시 기본 사용량과 delta를 합산하고, `ready` 항목은 차감 미리보기에 자동 포함하며 `review_required` 항목만 수정·제외하게 한다. 확정 후 idempotency key를 사용해 재고 이벤트와 완료 레시피를 하나의 트랜잭션으로 기록한다.
+
+구현 계약(2026-09-13): `search_recipe_candidates`와 `get_recipe_candidate_detail`은 service role만 호출한다. 검색은 구조화 `ingredients` 필드만 사용하고 각 원천에서 최대 20개 후보만 읽는다. 선택한 한 건만 Terra에 전달하며 응답의 `origin`은 모델이 아닌 서버가 지정한다. `complete_recipe_cooking_shared`는 완료·재고 차감·개인 저장 후 요청된 경우에만 `share_completed_ai_recipe`를 같은 트랜잭션에서 실행한다. 공유 함수는 소유자·완료 기록·AI 생성 origin·콘텐츠 구조를 검사하고 사용자 식별자 및 재고 키를 제거한 독립 스냅샷을 멱등하게 만든다. 완료 전 따봉 상태는 클라이언트의 공유 대기값이며 DB 레시피 저장이 아니다.
+
+개정 설계(2026-09-14, 구현 전): 구매 필요 품목 수를 출처와 메뉴 이름 점수보다 먼저 평가한다. 공공·공유·Terra 각각에서 구매 0개를 먼저 시도하고, 불가능할 때만 구매 1개 이하를 허용한다. Terra의 필수 재료 제외·재고 대체 결과도 서버가 실제 lot·단위·수량과 대조해 구매 수를 검증한다. 자세한 계약은 `docs/superpowers/specs/2026-09-14-zero-purchase-recipes-storage-aware-shelf-life-design.md`를 따른다.
 
 클라이언트 재진입 시 서버는 `status=active`이고 `expires_at`이 지나지 않은 소유자 세션을 반환한다. 사용자가 취소하면 `cancelled`, 시작 후 12시간이 지나면 `expired`로 전환하며 두 경우 모두 `cooking_session_usage`를 재고 이벤트로 승격하지 않는다.
 
@@ -504,5 +513,7 @@ Android 세션은 OS가 보호하는 비밀 저장소를 사용하는 Expo 호�
 - OpenAI Web Search 도메인 필터: https://developers.openai.com/api/docs/guides/tools-web-search
 
 2026-09-12 사용자 결정으로 기존 만개의레시피·YouTube·일반 웹 레시피 검색 경로는 폐기 대상으로 변경됐다. 사용자가 전처리한 MFDS·MAFRA 공공데이터를 비공개 `recipe_catalog`에 적재해 먼저 조회하고, 적합한 후보가 없거나 정확도가 임계값보다 낮으면 웹 검색 없이 `gpt-5.6-terra`가 레시피를 생성한다. 정확도 점수식과 Terra 생성·검증 계약은 데이터 적재 이후 별도 설계한다.
+
+2026-09-19 구현 기준: 메뉴 Edge Function은 공개·공유 후보와 Terra 생성 결과를 실제 재고 lot에 대조해 구매 0개 후보를 먼저 채택하고, 2개 이상 구매가 필요한 결과는 반환하지 않는다. 공용 `shelf_life_rules`는 식품명과 `storage_method`를 함께 키로 사용하며, 조회 실패는 빈 날짜로 처리한다. `inventory_lots.storage_method`는 구매 import RPC와 채팅 재고 변경 RPC가 함께 보존한다. 관련 migration은 `202609140001`~`202609140003`, `202609190001`이며 Edge Function은 `_shared/shelf-life-resolver.ts`를 공유한다. 기존 lot의 보관 상태는 소급 추정하지 않는다.
 
 구현 시작 시 공식 문서를 다시 확인하고 버전·제약을 고정한다.

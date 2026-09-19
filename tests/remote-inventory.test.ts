@@ -17,6 +17,7 @@ test('remote inventory rows become the inventory model used by the app', () => {
         unit: '개',
         use_by_at: '2026-09-16',
         date_source: 'estimated',
+        storage_method: 'refrigerated',
       },
       {
         id: 'lot-2',
@@ -29,8 +30,8 @@ test('remote inventory rows become the inventory model used by the app', () => {
       },
     ]),
     [
-      { id: 'egg', name: '계란', quantity: 10, unit: '개', useBy: '2026-09-16', estimated: true },
-      { id: 'kimchi', name: '김치', quantity: 500, unit: 'g', useBy: '2026-09-23', estimated: false },
+      { id: 'egg', name: '계란', quantity: 10, unit: '개', useBy: '2026-09-16', estimated: true, storageMethod: 'refrigerated' },
+      { id: 'kimchi', name: '김치', quantity: 500, unit: 'g', useBy: '2026-09-23', estimated: false, storageMethod: null },
     ],
   );
 });

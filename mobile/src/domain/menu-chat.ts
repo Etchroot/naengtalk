@@ -1,6 +1,15 @@
 import type { Usage } from './cooking.ts';
+import type { RecipeOrigin } from './recipe-sharing.ts';
 
 export type ChatMessage = { role: 'user' | 'assistant'; content: string };
+export type ChatInventoryChange = {
+  action: 'add' | 'consume' | 'set';
+  name: string;
+  ingredientKey: string | null;
+  quantity: number | null;
+  unit: 'g' | 'ml' | '개' | '대' | null;
+  all: boolean;
+};
 export type MenuChatRequest = {
   message: string;
   history: ChatMessage[];
@@ -16,6 +25,7 @@ export type RecipeIngredient = {
   requiredPurchase: boolean;
 };
 export type MenuRecipe = {
+  origin?: RecipeOrigin;
   title: string;
   reason: string;
   servings: number;
@@ -25,7 +35,7 @@ export type MenuRecipe = {
   steps: Array<{ text: string; minutes: number }>;
   sources: Array<{ title: string; url: string }>;
 };
-export type MenuChatResponse = { reply: string; recipe: MenuRecipe | null };
+export type MenuChatResponse = { reply: string; recipe: MenuRecipe | null; inventoryChanges: ChatInventoryChange[] };
 
 function boundedLabels(value: unknown): string[] {
   if (!Array.isArray(value)) return [];
@@ -81,7 +91,22 @@ export function parseMenuChatResponse(input: unknown): MenuChatResponse {
   if (!input || typeof input !== 'object') invalidAiResponse();
   const raw = input as Record<string, unknown>;
   const reply = text(raw.reply);
-  if (raw.recipe === null) return { reply, recipe: null };
+  const inventoryChanges = Array.isArray(raw.inventoryChanges)
+    ? raw.inventoryChanges.slice(0, 20).map((value): ChatInventoryChange => {
+        if (!value || typeof value !== 'object') invalidAiResponse();
+        const item = value as Record<string, unknown>;
+        if (item.action !== 'add' && item.action !== 'consume' && item.action !== 'set') invalidAiResponse();
+        const quantity = item.quantity === null ? null
+          : item.action === 'set' ? nonnegativeNumber(item.quantity) : positiveNumber(item.quantity);
+        const unit = item.unit;
+        if (unit !== null && unit !== 'g' && unit !== 'ml' && unit !== '개' && unit !== '대') invalidAiResponse();
+        if (item.ingredientKey !== null && typeof item.ingredientKey !== 'string') invalidAiResponse();
+        if (typeof item.all !== 'boolean') invalidAiResponse();
+        return { action: item.action, name: text(item.name, 100),
+          ingredientKey: item.ingredientKey as string | null, quantity,
+          unit: unit as ChatInventoryChange['unit'], all: item.all };
+      }) : [];
+  if (raw.recipe === null) return { reply, recipe: null, inventoryChanges };
   if (!raw.recipe || typeof raw.recipe !== 'object') invalidAiResponse();
   const recipe = raw.recipe as Record<string, unknown>;
   if (!Array.isArray(recipe.ingredients) || !recipe.ingredients.length || recipe.ingredients.length > 30) invalidAiResponse();
@@ -120,9 +145,14 @@ export function parseMenuChatResponse(input: unknown): MenuChatResponse {
     if (!url.startsWith('https://')) invalidAiResponse();
     return { title: text(source.title, 200), url };
   });
+  const allowedOrigins = ['MFDS', 'MAFRA', 'SHARED_AI', 'AI_GENERATED', 'DEMO'];
+  const origin = allowedOrigins.includes(String(recipe.origin))
+    ? recipe.origin as RecipeOrigin : 'UNKNOWN';
   return {
     reply,
+    inventoryChanges,
     recipe: {
+      origin,
       title: text(recipe.title, 200),
       reason: text(recipe.reason, 500),
       servings: positiveNumber(recipe.servings),

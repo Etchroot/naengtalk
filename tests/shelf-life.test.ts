@@ -80,6 +80,15 @@ test('web search results are accepted only when their HTTPS source was retrieved
   );
 });
 
+test('retrieved source URL query and trailing slash do not invalidate the same cited page', () => {
+  const parse = Reflect.get(shelfLife, 'parseShelfLifeSearchResponse');
+  const response = { rules: [{ ...potatoLookup, durationDays: 14,
+    sourceTitle: '공식 보관 안내', sourceUrl: 'https://foods.example.org/potato/', confidence: 0.91 }] };
+  const rules = parse(response, new Set(['https://foods.example.org/potato?utm_source=search']));
+  assert.equal(rules.length, 1);
+  assert.equal(rules[0].sourceUrl, 'https://foods.example.org/potato/');
+});
+
 test('shelf-life search request uses bounded web search and privacy controls', () => {
   const buildShelfLifeSearchRequest = Reflect.get(shelfLife, 'buildShelfLifeSearchRequest');
   assert.equal(typeof buildShelfLifeSearchRequest, 'function');
@@ -98,10 +107,10 @@ test('fallback date is conservative and always requires user review', () => {
   assert.equal(typeof buildShelfLifeFallback, 'function');
 
   assert.deepEqual(buildShelfLifeFallback(potatoLookup, '2026-09-10'), {
-    recommendedUseBy: '2026-09-24',
+    recommendedUseBy: null,
     shelfLifeStatus: 'fallback',
     needsReview: true,
-    internalNote: '공용 권장 소진일 기준을 찾지 못해 보수적인 임시값을 적용했습니다.',
+    internalNote: '검증된 공용 권장 소진일 기준을 찾지 못했습니다. 제품 표시일을 직접 입력해주세요.',
   });
 });
 
@@ -152,10 +161,47 @@ test('missing shelf-life rule keeps the food editable and review-required', () =
 
   const items = [{ foodName: '감자', category: 'storage_vegetable', needsReview: false, note: null, isFood: true }];
   const [result] = enrichItemsWithShelfLife(items, [], '2026-09-10');
-  assert.equal(result.recommendedUseBy, '2026-09-24');
+  assert.equal(result.recommendedUseBy, null);
   assert.equal(result.shelfLifeStatus, 'fallback');
   assert.equal(result.needsReview, true);
   assert.match(result.internalNote, /공용 권장 소진일 기준/);
+});
+
+test('explicit frozen or refrigerated wording selects a separate cache key for every food', () => {
+  const lookupForItem = Reflect.get(shelfLife, 'shelfLifeLookupForItem');
+  assert.equal(typeof lookupForItem, 'function');
+  const frozen = lookupForItem({ productName: '냉동 브로콜리 300g', foodName: '브로콜리', category: 'vegetable' });
+  const chilled = lookupForItem({ productName: '냉장 브로콜리 300g', foodName: '브로콜리', category: 'vegetable' });
+  const plain = lookupForItem({ productName: '브로콜리 300g', foodName: '브로콜리', category: 'vegetable' });
+  assert.equal(frozen.storageMethod, 'frozen');
+  assert.equal(chilled.storageMethod, 'refrigerated');
+  assert.equal(plain.storageMethod, 'refrigerated');
+  assert.notEqual(shelfLife.canonicalShelfLifeKey(frozen.canonicalKey, frozen.storageMethod, frozen.packageState),
+    shelfLife.canonicalShelfLifeKey(chilled.canonicalKey, chilled.storageMethod, chilled.packageState));
+});
+
+test('frozen cache rule enriches frozen fish but not fresh fish', () => {
+  const enrich = Reflect.get(shelfLife, 'enrichItemsWithShelfLife');
+  const rules = [{ canonicalKey: '고등어', canonicalName: '고등어', category: 'fresh_meat',
+    storageMethod: 'frozen', packageState: 'unopened', durationDays: 90,
+    sourceTitle: '시험 근거', sourceUrl: 'https://example.org/fish', sourceCheckedAt: '2026-09-10', confidence: 0.9 }];
+  const items = [
+    { productName: '냉동 고등어', foodName: '고등어', category: 'fresh_meat', needsReview: false, note: null, isFood: true },
+    { productName: '냉장 고등어', foodName: '고등어', category: 'fresh_meat', needsReview: false, note: null, isFood: true },
+  ];
+  const result = enrich(items, rules, '2026-09-10');
+  assert.equal(result[0].recommendedUseBy, '2026-12-09');
+  assert.equal(result[1].recommendedUseBy, null);
+});
+
+test('conflicting storage wording requires manual review instead of guessing frozen', () => {
+  const enrich = Reflect.get(shelfLife, 'enrichItemsWithShelfLife');
+  const [item] = enrich([
+    { productName: '냉동 보관 후 냉장 고등어', foodName: '고등어', category: 'fresh_meat', needsReview: false, note: null, isFood: true },
+  ], [], '2026-09-10');
+  assert.equal(item.recommendedUseBy, null);
+  assert.equal(item.storageMethod, null);
+  assert.equal(item.needsReview, true);
 });
 
 test('retrieved web source URLs are extracted from tool sources and citations', () => {

@@ -1,4 +1,4 @@
-export type InventoryItem = { id: string; name: string; quantity: number; unit: string; useBy: string; estimated: boolean };
+export type InventoryItem = { id: string; name: string; quantity: number; unit: string; useBy: string; estimated: boolean; storageMethod?: 'room_temperature' | 'refrigerated' | 'frozen' | null };
 export type Usage = { ingredientId: string; quantity: number; unit: string };
 export type CookingState = { inventory: InventoryItem[]; completedSessionIds: string[] };
 export function completeCooking(state: CookingState, sessionId: string, usage: Usage[]): CookingState {

@@ -94,6 +94,7 @@ test('final payload rejects invalid dates and maps valid edited rows', () => {
     unit: 'g',
     use_by_at: '2026-09-13',
     date_source: 'user_override',
+    storage_method: 'refrigerated',
     import_resolution: 'user_edited',
     internal_note: null,
   }]);
@@ -116,16 +117,28 @@ test('adding a later analysis preserves edits already made to earlier rows', () 
   assert.equal(combined.length, 2);
 });
 
-test('a complete fallback estimate is editable but does not require manual correction', () => {
+test('missing sourced date remains blank and blocks registration until user enters one', () => {
   const buildPurchaseReviewRows = Reflect.get(review, 'buildPurchaseReviewRows');
   const validatePurchaseReviewRows = Reflect.get(review, 'validatePurchaseReviewRows');
   const [row] = buildPurchaseReviewRows([{ sourceId: 'R1', items: [{
     ...tofuItem,
     needsReview: true,
     shelfLifeStatus: 'fallback',
-    internalNote: '보수적 추정일',
+    recommendedUseBy: null,
+    internalNote: '근거 없음',
   }] }]);
 
-  assert.equal(row.needsReview, false);
-  assert.deepEqual(validatePurchaseReviewRows([row], '2026-09-10'), []);
+  assert.equal(row.needsReview, true);
+  assert.deepEqual(validatePurchaseReviewRows([row], '2026-09-10'), [row.id]);
+});
+
+test('review preserves frozen storage and correcting storage requires a new date', () => {
+  const build = Reflect.get(review, 'buildPurchaseReviewRows');
+  const update = Reflect.get(review, 'updatePurchaseReviewRow');
+  const payload = Reflect.get(review, 'toInventoryImportPayload');
+  const [row] = build([{ sourceId: 'R1', items: [{ ...tofuItem, productName: '냉동 두부', storageMethod: 'frozen' }] }]);
+  assert.equal(payload([row], '2026-09-10')[0].storage_method, 'frozen');
+  const changed = update(row, { storageMethod: 'refrigerated' }, '2026-09-10');
+  assert.equal(changed.useByDate, '');
+  assert.equal(changed.needsReview, true);
 });

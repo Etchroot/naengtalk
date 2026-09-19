@@ -24,6 +24,7 @@ import {
   ChevronRight,
   ChevronDown,
   Check,
+  ThumbsUp,
 } from "lucide-react-native";
 import {
   completeCooking,
@@ -68,6 +69,8 @@ import {
 } from "../services/auth.ts";
 import { loadRemoteInventory } from "../services/remote-inventory.ts";
 import { completeRemoteCooking } from "../services/remote-cooking.ts";
+import { shareCompletedAiRecipe } from "../services/remote-cooking.ts";
+import { canShareRecipe, newProposalSharingState, shareAfterCompletion } from "../domain/recipe-sharing.ts";
 import { sendMenuChat } from "../services/menu-chat.ts";
 import {
   analysisFromResponse,
@@ -81,6 +84,14 @@ import {
 } from "../domain/purchase-review.ts";
 import { analyzePurchaseImage } from "../services/purchase-ocr.ts";
 import { analyzeInventoryText } from "../services/inventory-parse.ts";
+import {
+  capChatInventoryRow,
+  createChatInventoryDraft,
+  toChatInventoryPayload,
+  type ChatInventoryRow,
+} from "../domain/chat-inventory.ts";
+import { applyRemoteChatInventory } from "../services/chat-inventory.ts";
+import { normalizedIngredientKey } from "../domain/purchase-ocr.ts";
 import {
   pickPurchaseImages,
   selectionFromSample,
@@ -125,6 +136,7 @@ const sampleSteps = [
   },
 ];
 const sampleRecipe: MenuRecipe = {
+  origin: "DEMO",
   title: "김치 두부찌개",
   reason: "두부를 먼저 사용하면서 추가 구매 없이 만들 수 있어요.",
   servings: 1,
@@ -142,6 +154,9 @@ const sampleRecipe: MenuRecipe = {
 type LocalState = CookingState & {
   providedAt: string;
   saved: boolean;
+  savedRecipeId: string | null;
+  sharePending: boolean;
+  shared: boolean;
   tools: string[];
   allergens: string[];
   timer: { label: string; endsAt: number } | null;
@@ -155,6 +170,7 @@ function fresh(): LocalState {
     completedSessionIds: [],
     providedAt: date,
     saved: false,
+    ...newProposalSharingState(),
     tools: [
       "2.5L 냄비",
       "계란후라이용 프라이팬",
@@ -223,8 +239,16 @@ export default function NaengTalk() {
   const [purchaseProgress, setPurchaseProgress] = useState("");
   const [directInput, setDirectInput] = useState("");
   const [usageDraft, setUsageDraft] = useState<UsageDraft[]>([]);
+  const [chatInventoryRows, setChatInventoryRows] = useState<ChatInventoryRow[]>([]);
+  const [chatInventoryKey, setChatInventoryKey] = useState("");
+  const [chatInventoryBusy, setChatInventoryBusy] = useState(false);
+  const [overdraw, setOverdraw] = useState<{
+    kind: "chat" | "recipe"; rowId: string; name: string; available: number; unit: string;
+  } | null>(null);
   const [input, setInput] = useState("");
   const [aiBusy, setAiBusy] = useState(false);
+  const [shareConsentVisible, setShareConsentVisible] = useState(false);
+  const [shareBusy, setShareBusy] = useState(false);
   const [now, setNow] = useState(Date.now());
   const [error, setError] = useState("");
   const [inventorySort, setInventorySort] =
@@ -333,6 +357,7 @@ export default function NaengTalk() {
     try {
       await signOutSession();
       setState(fresh());
+      setShareConsentVisible(false);
       setLoggedIn(false);
       setTab(0);
     } catch {
@@ -353,6 +378,7 @@ export default function NaengTalk() {
         loadRemote: loadRemoteInventory,
       });
       setState({ ...fresh(), inventory });
+      setShareConsentVisible(false);
       setTab(0);
     } catch {
       setError("샘플 데이터를 초기화하지 못했습니다. 다시 시도해주세요.");
@@ -516,6 +542,8 @@ export default function NaengTalk() {
           ...current,
           chat: [...current.chat, assistant],
           recipe: sampleRecipe,
+          saved: false,
+          ...newProposalSharingState(),
           providedAt: new Date().toISOString().slice(0, 10),
         }));
       } else {
@@ -531,10 +559,31 @@ export default function NaengTalk() {
           ...current,
           chat: [...current.chat, { role: "assistant", content: response.reply }],
           recipe: response.recipe ?? current.recipe,
+          ...(response.recipe ? { saved: false, ...newProposalSharingState() } : {}),
           providedAt: response.recipe
             ? new Date().toISOString().slice(0, 10)
             : current.providedAt,
         }));
+        if (response.inventoryChanges.length) {
+          const latestInventory = await loadRemoteInventory();
+          let additionRows: PurchaseReviewRow[] = [];
+          const additions = response.inventoryChanges.filter((change) => change.action === "add");
+          if (additions.length) {
+            try {
+              const parsed = await analyzeInventoryText(additions.map((change) =>
+                `${change.name} ${change.quantity ?? ""}${change.unit ?? ""}`).join("\n"));
+              additionRows = appendPurchaseReviewRows([], [analysisFromResponse(`CHAT-${Date.now()}`, parsed)]);
+            } catch {
+              // The reviewer can fill an unrecognized shelf-life date instead of losing the proposal.
+            }
+          }
+          const rows = createChatInventoryDraft(response.inventoryChanges, latestInventory, additionRows);
+          setState((current) => ({ ...current, inventory: latestInventory }));
+          if (rows.length) {
+            setChatInventoryRows(rows);
+            setChatInventoryKey(`chat-${Date.now()}-${Math.random().toString(36).slice(2)}`);
+          }
+        }
       }
     } catch (e) {
       setError((e as Error).message);
@@ -542,33 +591,98 @@ export default function NaengTalk() {
       setAiBusy(false);
     }
   };
-  const finish = async () => {
+  const confirmChatInventory = async (rows: ChatInventoryRow[] = chatInventoryRows) => {
+    if (chatInventoryBusy) return;
+    setError("");
+    setChatInventoryBusy(true);
+    try {
+      const payload = toChatInventoryPayload(rows, new Date().toISOString().slice(0, 10));
+      const result = await applyRemoteChatInventory(chatInventoryKey, payload);
+      if (result.status === "needs_confirmation") {
+        const row = rows.find((item) => item.action === "consume"
+          && item.ingredientKey === result.ingredient_key && item.unit === result.unit);
+        if (!row) throw new Error("초과 사용 항목을 다시 확인해주세요.");
+        setOverdraw({ kind: "chat", rowId: row.id, name: result.display_name,
+          available: Number(result.available), unit: result.unit });
+        return;
+      }
+      const inventory = await loadRemoteInventory();
+      setState((current) => ({ ...current, inventory,
+        chat: [...current.chat, { role: "assistant", content: result.status === "already_applied"
+          ? "이미 반영된 재고 변경입니다." : "확인한 재고 변경을 반영했어요." }] }));
+      setChatInventoryRows([]);
+      setChatInventoryKey("");
+    } catch (e) {
+      setError((e as Error).message || "재고를 반영하지 못했습니다. 다시 시도해주세요.");
+    } finally {
+      setChatInventoryBusy(false);
+    }
+  };
+  const confirmShare = async () => {
+    if (!canShareRecipe(state.recipe) || shareBusy) return;
+    setShareConsentVisible(false);
+    if (!state.saved) {
+      setState((current) => ({ ...current, sharePending: true }));
+      return;
+    }
+    if (!state.savedRecipeId) {
+      setError("이 레시피의 저장 정보를 확인하지 못했습니다. 새로 요리 완료한 레시피에서 공유해주세요.");
+      return;
+    }
+    setShareBusy(true);
+    try {
+      await shareCompletedAiRecipe(state.savedRecipeId);
+      setState((current) => ({ ...current, shared: true, sharePending: false }));
+    } catch {
+      setError("레시피를 공유하지 못했습니다. 다시 시도해주세요.");
+    } finally {
+      setShareBusy(false);
+    }
+  };
+  const finish = async (draftOverride?: UsageDraft[]) => {
     if (lock.current) return;
     lock.current = true;
     setError("");
     try {
       if (!state.recipe) throw new Error("완료할 레시피가 없습니다.");
-      const usage = usageFromDraft(usageDraft);
+      const usage = usageFromDraft(draftOverride ?? usageDraft);
       if (!usage.length) throw new Error("재고에서 차감할 재료가 없습니다.");
+      const latestInventory = backendConfig.mode === "supabase"
+        ? await loadRemoteInventory() : state.inventory;
+      for (const line of usage) {
+        const available = latestInventory.filter((item) => item.id === line.ingredientId && item.unit === line.unit)
+          .reduce((sum, item) => sum + item.quantity, 0);
+        if (line.quantity > available) {
+          setState((current) => ({ ...current, inventory: latestInventory }));
+          setOverdraw({ kind: "recipe", rowId: line.ingredientId,
+            name: latestInventory.find((item) => item.id === line.ingredientId)?.name ?? line.ingredientId,
+            available, unit: line.unit });
+          return;
+        }
+      }
       if (backendConfig.mode === "supabase") {
-        await completeRemoteCooking({
+        const completed = await completeRemoteCooking({
           title: state.recipe.title,
           content: state.recipe,
           usage,
           requestKey: session,
+          shareAfterCompletion: shareAfterCompletion(state.recipe, state.sharePending, state.shared),
         });
         const inventory = await loadRemoteInventory();
         setState((current) => ({
           ...current,
           inventory,
           saved: true,
+          savedRecipeId: completed.recipe_id ?? current.savedRecipeId,
+          shared: Boolean(completed.shared_recipe_id) || current.shared,
+          sharePending: completed.shared_recipe_id ? false : current.sharePending,
           completedSessionIds: current.completedSessionIds.includes(session)
             ? current.completedSessionIds
             : [...current.completedSessionIds, session],
         }));
       } else {
         const result = completeCooking(state, session, usage);
-        setState({ ...state, ...result, saved: true });
+        setState({ ...state, ...result, saved: true, sharePending: false });
       }
       setDetail(false);
       setReview(false);
@@ -576,6 +690,23 @@ export default function NaengTalk() {
       setTab(3);
     } catch (e) {
       const message = (e as Error).message;
+      if (message.includes("insufficient inventory") && backendConfig.mode === "supabase") {
+        try {
+          const latest = await loadRemoteInventory();
+          const offending = usageFromDraft(draftOverride ?? usageDraft).find((line) => line.quantity > latest
+            .filter((item) => item.id === line.ingredientId && item.unit === line.unit)
+            .reduce((sum, item) => sum + item.quantity, 0));
+          if (offending) {
+            const available = latest.filter((item) => item.id === offending.ingredientId && item.unit === offending.unit)
+              .reduce((sum, item) => sum + item.quantity, 0);
+            setState((current) => ({ ...current, inventory: latest }));
+            setOverdraw({ kind: "recipe", rowId: offending.ingredientId,
+              name: latest.find((item) => item.id === offending.ingredientId)?.name ?? offending.ingredientId,
+              available, unit: offending.unit });
+            return;
+          }
+        } catch { /* Preserve the original server error below. */ }
+      }
       setError(
         message.includes("사용량") || message.includes("0보다")
           ? message
@@ -867,7 +998,7 @@ export default function NaengTalk() {
                     <View key={item.id} style={s.card}>
                       <View style={s.row}>
                         <Text style={[s.title, { fontSize: 17, flex: 1 }]}>
-                          {item.name}
+                          {item.name}{item.storageMethod === "frozen" ? " · 냉동" : item.storageMethod === "refrigerated" ? " · 냉장" : item.storageMethod === "room_temperature" ? " · 실온" : ""}
                         </Text>
                         <Text style={s.text}>
                           {item.quantity}
@@ -1055,6 +1186,91 @@ export default function NaengTalk() {
           </>
         )}
         <Modal
+          visible={chatInventoryRows.length > 0}
+          transparent
+          animationType="slide"
+          onRequestClose={() => { if (!chatInventoryBusy) setChatInventoryRows([]); }}
+        >
+          <View style={{ flex: 1, justifyContent: "center", padding: 20, backgroundColor: "#0007" }}>
+            <View style={[s.card, { alignSelf: "center", width: "100%", maxWidth: 440, maxHeight: "85%" }]}>
+              <Text style={s.title}>채팅 재고 변경 확인</Text>
+              <Text style={s.muted}>재료명과 수량을 확인하고 승인하면 재고에 반영합니다.</Text>
+              <ScrollView showsVerticalScrollIndicator={false}>
+                {chatInventoryRows.map((row) => (
+                  <View key={row.id} style={[s.card, { padding: 12, marginVertical: 6 }]}>
+                    <Text style={[s.text, { fontWeight: "700" }]}>
+                      {row.action === "add" ? "추가" : row.action === "consume" ? "소비" : "남은 수량 설정"}
+                    </Text>
+                    <TextInput
+                      accessibilityLabel={`${row.name} 재료명`}
+                      style={s.input}
+                      value={row.name}
+                      onChangeText={(name) => setChatInventoryRows((current) => current.map((item) => {
+                        if (item.id !== row.id) return item;
+                        const match = state.inventory.find((stock) => stock.name.trim() === name.trim());
+                        return { ...item, name,
+                          ingredientKey: item.action === "add" ? normalizedIngredientKey(name)
+                            : match?.id ?? "" };
+                      }))}
+                    />
+                    <TextInput
+                      accessibilityLabel={`${row.name} 수량`}
+                      placeholder="예: 300g, 2개"
+                      style={s.input}
+                      value={row.quantityText}
+                      onChangeText={(quantityText) => setChatInventoryRows((current) => current.map((item) => {
+                        if (item.id !== row.id) return item;
+                        const unit = quantityText.trim().match(/(?:g|ml|개|대)$/i)?.[0].toLowerCase() ?? item.unit;
+                        return { ...item, quantityText, unit };
+                      }))}
+                    />
+                    {row.action === "add" ? (
+                      <>
+                        <Text style={s.muted}>보관 상태</Text>
+                        <View style={{ flexDirection: "row", gap: 6, marginVertical: 8 }}>
+                          {([
+                            ["room_temperature", "실온"],
+                            ["refrigerated", "냉장"],
+                            ["frozen", "냉동"],
+                          ] as const).map(([method, label]) => (
+                            <Pressable
+                              key={method}
+                              accessibilityRole="button"
+                              accessibilityLabel={`${row.name} ${label} 보관`}
+                              accessibilityState={{ selected: row.storageMethod === method }}
+                              onPress={() => setChatInventoryRows((current) => current.map((item) =>
+                                item.id === row.id ? { ...item, storageMethod: method, useByDate: "" } : item))}
+                              style={{ paddingHorizontal: 12, paddingVertical: 7, borderRadius: 12,
+                                borderWidth: 1, borderColor: row.storageMethod === method ? color.green : color.line,
+                                backgroundColor: row.storageMethod === method ? "#edf6eb" : "#fff" }}
+                            >
+                              <Text style={{ color: row.storageMethod === method ? color.green : color.muted }}>{label}</Text>
+                            </Pressable>
+                          ))}
+                        </View>
+                        <Text style={s.muted}>권장 소진일</Text>
+                        <TextInput
+                          accessibilityLabel={`${row.name} 권장 소진일`}
+                          placeholder="YYYY-MM-DD"
+                          style={s.input}
+                          value={row.useByDate}
+                          onChangeText={(useByDate) => setChatInventoryRows((current) => current.map((item) =>
+                            item.id === row.id ? { ...item, useByDate } : item))}
+                        />
+                      </>
+                    ) : <Text style={s.muted}>현재 재고 {row.available}{row.unit}</Text>}
+                  </View>
+                ))}
+              </ScrollView>
+              {error ? <Text accessibilityRole="alert" style={{ color: "#a94232" }}>{error}</Text> : null}
+              <View style={s.row}>
+                <View style={{ flex: 1 }}><Button secondary onPress={() => { setChatInventoryRows([]); setError(""); }}>취소</Button></View>
+                <View style={{ flex: 1 }}><Button loading={chatInventoryBusy} onPress={() => void confirmChatInventory()}>승인</Button></View>
+              </View>
+            </View>
+          </View>
+        </Modal>
+        <Modal
           visible={detail}
           animationType="slide"
           onRequestClose={() => setDetail(false)}
@@ -1158,9 +1374,79 @@ export default function NaengTalk() {
                       : "채팅으로 돌아가기"}
                   </Button>
                 </View>
+                {canShareRecipe(state.recipe) ? (
+                  <Pressable
+                    accessibilityRole="button"
+                    accessibilityLabel={state.shared ? "공유된 레시피" : "레시피 좋아요 및 공유"}
+                    accessibilityState={{ disabled: state.shared || shareBusy, busy: shareBusy }}
+                    disabled={state.shared || shareBusy}
+                    onPress={() => setShareConsentVisible(true)}
+                    style={{ width: 44, height: 44, alignItems: "center", justifyContent: "center" }}
+                  >
+                    {shareBusy ? <ActivityIndicator size="small" color={color.green} /> : (
+                      <ThumbsUp
+                        size={24}
+                        color={state.sharePending || state.shared ? "#D9A900" : color.green}
+                        fill={state.sharePending || state.shared ? "#FFD64D" : "transparent"}
+                      />
+                    )}
+                  </Pressable>
+                ) : null}
                 <Button onPress={startUsageReview}>요리 완료</Button>
               </View>
             </SafeAreaView>
+          </View>
+        </Modal>
+        <Modal
+          visible={overdraw !== null}
+          transparent
+          animationType="fade"
+          onRequestClose={() => setOverdraw(null)}
+        >
+          <View style={{ flex: 1, justifyContent: "center", padding: 24, backgroundColor: "#0008" }}>
+            <View style={[s.card, { alignSelf: "center", width: "100%", maxWidth: 440, gap: 16 }]}>
+              <Text style={s.title}>재고 사용량 확인</Text>
+              <Text style={s.text}>
+                {overdraw?.name}은(는) 현재 재고보다 많은 수량을 소비했습니다. 전량 소비한 것으로 처리할까요?
+              </Text>
+              <View style={s.row}>
+                <View style={{ flex: 1 }}><Button secondary onPress={() => setOverdraw(null)}>취소</Button></View>
+                <View style={{ flex: 1 }}><Button onPress={() => {
+                  if (!overdraw) return;
+                  const current = overdraw;
+                  setOverdraw(null);
+                  if (current.kind === "chat") {
+                    const capped = capChatInventoryRow(chatInventoryRows, current.rowId, current.available);
+                    setChatInventoryRows(capped);
+                    if (capped.length) void confirmChatInventory(capped);
+                    return;
+                  }
+                  const capped = current.available <= 0
+                    ? usageDraft.filter((line) => line.ingredientId !== current.rowId)
+                    : updateUsageDraftQuantity(usageDraft, current.rowId, String(current.available));
+                  setUsageDraft(capped);
+                  if (capped.length) void finish(capped);
+                  else setError("차감할 등록 재고가 없습니다. 사용량을 다시 확인해주세요.");
+                }}>확인</Button></View>
+              </View>
+            </View>
+          </View>
+        </Modal>
+        <Modal
+          visible={shareConsentVisible}
+          transparent
+          animationType="fade"
+          onRequestClose={() => setShareConsentVisible(false)}
+        >
+          <View style={{ flex: 1, justifyContent: "center", padding: 24, backgroundColor: "#0007" }}>
+            <View style={[s.card, { alignSelf: "center", width: "100%", maxWidth: 440, gap: 16 }]}>
+              <Text style={s.title}>레시피 공유</Text>
+              <Text style={s.text}>좋아요 표시를 하면 이 레시피가 다른 사용자도 이용할 수 있도록 공유됩니다.</Text>
+              <View style={s.row}>
+                <View style={{ flex: 1 }}><Button secondary onPress={() => setShareConsentVisible(false)}>취소</Button></View>
+                <View style={{ flex: 1 }}><Button onPress={() => void confirmShare()}>확인</Button></View>
+              </View>
+            </View>
           </View>
         </Modal>
         <Modal
@@ -1321,6 +1607,31 @@ export default function NaengTalk() {
                         )))}
                         style={s.input}
                       />
+                      <Text style={[s.muted, { fontWeight: "700", marginTop: 8 }]}>보관 상태</Text>
+                      <View style={{ flexDirection: "row", gap: 6, marginVertical: 8 }}>
+                        {([
+                          ["room_temperature", "실온"],
+                          ["refrigerated", "냉장"],
+                          ["frozen", "냉동"],
+                        ] as const).map(([method, label]) => (
+                          <Pressable
+                            key={method}
+                            accessibilityRole="button"
+                            accessibilityLabel={`${row.name || "식품"} ${label} 보관`}
+                            accessibilityState={{ selected: row.storageMethod === method }}
+                            onPress={() => setPurchaseRows((current) => current.map((item) => (
+                              item.id === row.id
+                                ? updatePurchaseReviewRow(item, { storageMethod: method }, new Date().toISOString().slice(0, 10))
+                                : item
+                            )))}
+                            style={{ paddingHorizontal: 12, paddingVertical: 7, borderRadius: 12,
+                              borderWidth: 1, borderColor: row.storageMethod === method ? color.green : color.line,
+                              backgroundColor: row.storageMethod === method ? "#edf6eb" : "#fff" }}
+                          >
+                            <Text style={{ color: row.storageMethod === method ? color.green : color.muted }}>{label}</Text>
+                          </Pressable>
+                        ))}
+                      </View>
                       <Text style={[s.muted, { fontWeight: "700" }]}>권장 소진일</Text>
                       <TextInput
                         accessibilityLabel={`${row.name || "미확인 식품"} 권장 소진일`}

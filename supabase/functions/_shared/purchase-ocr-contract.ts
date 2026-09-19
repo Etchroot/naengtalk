@@ -63,6 +63,7 @@ export function buildPurchaseOcrOpenAiRequest(imageDataUrl: string) {
 화면에 실제로 보이는 텍스트만 전사하고 상품 썸네일의 외형으로 제품을 추측하지 않는다.
 식품과 조미료만 isFood=true로 표시하고 생활용품은 false로 표시한다.
 foodName은 브랜드와 마케팅 문구를 제거한 재고용 식재료 이름으로 쓴다.
+productName에는 원문 상품명의 냉동·냉장 표시를 반드시 보존한다. foodName에서 보관 표시를 제거하더라도 productName에서는 지우지 않는다.
 수량과 중량이 모두 있으면 총 재고량으로 환산한다. 예: 300g 2개는 600g이다.
 지원 단위는 g, ml, 개, 대뿐이다. 환산할 수 없거나 용량이 보이지 않으면 quantity와 unit을 null로 두고 needsReview=true로 표시한다.
 confidence가 0.8 미만이거나 중복 행·잘린 행·묶음 구성이 모호하면 needsReview=true로 표시한다.
