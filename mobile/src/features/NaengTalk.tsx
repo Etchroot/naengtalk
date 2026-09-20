@@ -31,7 +31,8 @@ import {
   remainingSeconds,
   type CookingState,
 } from "../domain/cooking.ts";
-import { createGuestInventory } from "../domain/seed.ts";
+import { createGuestInventory, createGuestTools } from "../domain/seed.ts";
+import { recipeDisplayReason } from "../domain/recipe-provenance.ts";
 import { resetGuestDemoInventory } from "../domain/guest-demo.ts";
 import {
   getHomeActionTitleFontSize,
@@ -171,12 +172,7 @@ function fresh(): LocalState {
     providedAt: date,
     saved: false,
     ...newProposalSharingState(),
-    tools: [
-      "2.5L 냄비",
-      "계란후라이용 프라이팬",
-      "전자레인지",
-      "1인용 에어프라이기",
-    ],
+    tools: createGuestTools(),
     allergens: ["새우"],
     timer: null,
     chat: [],
@@ -960,7 +956,7 @@ export default function NaengTalk() {
                   {state.recipe ? (
                     <View style={[s.card, { backgroundColor: color.soft }]}>
                       <Text style={s.title}>{state.recipe.title}</Text>
-                      <Text style={s.text}>{breakSentences(state.recipe.reason)}</Text>
+                      <Text style={s.text}>{breakSentences(recipeDisplayReason(state.recipe))}</Text>
                       <Button secondary onPress={openRecipe}>
                         레시피 전체 보기
                       </Button>
@@ -1058,8 +1054,8 @@ export default function NaengTalk() {
                             {
                               textAlign: "center",
                               flexShrink: 1,
-                              fontSize: 12,
-                              lineHeight: 16,
+                              fontSize: 18,
+                              lineHeight: 21,
                             },
                           ]}
                         >
@@ -1290,7 +1286,7 @@ export default function NaengTalk() {
                 <Text style={s.muted}>
                   제공일 {state.providedAt.replaceAll("-", ". ")} · {activeRecipe.servings}인분 · {activeRecipe.minutes}분
                 </Text>
-                <Text style={s.badge}>{breakSentences(activeRecipe.reason)}</Text>
+                <Text style={s.badge}>{breakSentences(recipeDisplayReason(activeRecipe))}</Text>
                 <View style={s.card}>
                   <Text style={s.title}>준비 재료</Text>
                   {activeRecipe.ingredients.map((ingredient, index) => (

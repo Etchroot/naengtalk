@@ -15,3 +15,12 @@ ${sourceRule} 외부 레시피 사이트의 본문·사진·조리 문장을 가
 steps.minutes는 타이머 버튼을 표시할 실제 조리 시간이다. 1분 이하 작업과 계량·재료 꺼내기·손질·담기처럼 조리가 아닌 작업은 반드시 0으로 반환한다.
 한국어로 답하고 내부 후보 원문을 길게 복제하지 않는다. sources 필드는 항상 빈 배열로 반환한다.`;
 }
+
+export function verifiedRecipeReason(origin: string, ingredients: Array<{ name: string; inInventory: boolean }>): string {
+  const names = ingredients.filter((item) => item.inInventory).map((item) => item.name.trim())
+    .filter(Boolean).slice(0, 3);
+  const stock = names.length ? `${names.join('·')}를 활용해 ` : '현재 재고에 맞춰 ';
+  if (origin === 'MFDS') return `식품의약품안전처 공공 레시피를 ${stock}조정했어요.`;
+  if (origin === 'MAFRA') return `농림축산식품부 공공 레시피를 ${stock}조정했어요.`;
+  return `${stock}구성한 레시피예요.`;
+}

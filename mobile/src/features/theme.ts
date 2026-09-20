@@ -52,6 +52,7 @@ export const s = StyleSheet.create({
   third: {
     width: "30%",
     aspectRatio: 1,
+    minHeight: 132,
     justifyContent: "center",
     alignItems: "center",
     padding: 6,

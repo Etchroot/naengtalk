@@ -1,5 +1,6 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
+import { createGuestInventory } from '../mobile/src/domain/seed.ts';
 
 const guestDemoModule = await import('../mobile/src/domain/guest-demo.ts').catch(() => ({}));
 
@@ -44,6 +45,17 @@ test('local guest reset builds the sample without touching remote data', async (
   });
 
   assert.equal(remoteTouched, false);
-  assert.equal(result.length, 10);
+  assert.equal(result.length, 30);
   assert.equal(result.some((item: { name: string }) => item.name === '계란'), true);
+});
+
+test('guest count-based foods start at ten units without changing weighted pantry items', () => {
+  const inventory = createGuestInventory('2026-09-20');
+  assert.equal(inventory.length, 30);
+  for (const item of inventory.filter((food) => food.unit === '개' || food.unit === '대')) {
+    assert.equal(item.quantity, 10, item.name);
+  }
+  assert.equal(inventory.find((food) => food.name === '무')?.quantity, 10);
+  assert.equal(inventory.find((food) => food.name === '양배추')?.quantity, 10);
+  assert.equal(inventory.find((food) => food.name === '두부')?.quantity, 300);
 });

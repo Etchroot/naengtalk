@@ -32,11 +32,26 @@ export function rankRecipeCandidates(
 
 export function inventorySearchTerms(
   inventory: Array<{ display_name?: unknown }>,
-  _requested: string[],
+  requested: string[],
 ): string[] {
   const normalized = inventory.map((item) => item.display_name)
     .filter((item): item is string => typeof item === 'string')
     .map((item) => item.trim())
     .filter(Boolean);
-  return [...new Set(normalized)].slice(0, 20);
+  const unique = [...new Set(normalized)];
+  const prioritized = requested.flatMap((name) => {
+    const exact = unique.find((stock) => stock === name.trim());
+    return exact ? [exact] : unique.filter((stock) => stock.includes(name.trim()) && name.trim().length >= 2);
+  });
+  return [...new Set([...prioritized, ...unique])].slice(0, 20);
+}
+
+export function mentionedInventoryNames(
+  message: string,
+  inventory: Array<{ display_name?: unknown }>,
+): string[] {
+  return inventory.map((lot) => lot.display_name)
+    .filter((name): name is string => typeof name === 'string' && name.trim().length > 0)
+    .filter((name) => name.length >= 2 ? message.includes(name)
+      : new RegExp(`(?:^|[\\s,.])${name}(?=$|[\\s,.]|랑|와|과|을|를|로|가|는|도)`).test(message));
 }

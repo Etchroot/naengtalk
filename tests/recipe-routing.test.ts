@@ -64,3 +64,19 @@ test('recipe instructions do not request any external website lookup', () => {
     assert.match(instructions, /외부 레시피/);
   }
 });
+
+test('requested foods remain in the bounded catalog search when a guest owns thirty lots', () => {
+  const inventorySearchTerms = Reflect.get(routing, 'inventorySearchTerms');
+  const inventory = Array.from({ length: 28 }, (_, index) => ({ display_name: `품목${index}` }));
+  inventory.push({ display_name: '무' }, { display_name: '양배추' });
+  const terms = inventorySearchTerms(inventory, ['무', '양배추']);
+  assert.equal(terms.length, 20);
+  assert.deepEqual(terms.slice(0, 2), ['무', '양배추']);
+});
+
+test('explicit foods in the message survive a classifier that omits ingredientNames', () => {
+  const mentionedInventoryNames = Reflect.get(routing, 'mentionedInventoryNames');
+  const inventory = [{ display_name: '무' }, { display_name: '양배추' }, { display_name: '배' }];
+  assert.deepEqual(mentionedInventoryNames('무랑 양배추로 요리해줘', inventory), ['무', '양배추']);
+  assert.deepEqual(mentionedInventoryNames('무엇을 먹지?', inventory), []);
+});

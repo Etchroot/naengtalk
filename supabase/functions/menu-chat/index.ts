@@ -9,10 +9,12 @@ import {
 } from '../_shared/menu-chat-contract.ts';
 import {
   inventorySearchTerms,
+  mentionedInventoryNames,
   rankRecipeCandidates,
   type RecipeCandidate,
 } from '../_shared/recipe-routing.ts';
 import { checkRecipeInventory, type RecipeLot } from '../_shared/recipe-inventory-guard.ts';
+import { verifiedRecipeReason } from '../_shared/recipe-guidelines.ts';
 
 const corsHeaders = {
   'Access-Control-Allow-Origin': '*',
@@ -101,12 +103,29 @@ function conversationText(request: MenuChatRequest, inventory: unknown): string 
   });
 }
 
+function repairPantry(inventory: RecipeLot[], requestedNames: string[]): RecipeLot[] {
+  const normalize = (value: string) => value.normalize('NFKC').toLowerCase().replace(/[^0-9a-z가-힣]/g, '');
+  const requested = requestedNames.map(normalize).filter(Boolean);
+  const named = inventory.filter((lot) => requested.some((name) => {
+    const stock = normalize(lot.display_name);
+    return name === stock || name.includes(stock) || stock.includes(name);
+  }));
+  const staples = new Set(['간장', '식용유', '소금', '된장', '고추장', '고춧가루', '다진마늘', '참기름', '설탕']);
+  const selected = named.length ? named : inventory.slice(0, 8);
+  const byKey = new Map(selected.map((lot) => [lot.ingredient_key, lot]));
+  for (const lot of inventory) {
+    if (staples.has(lot.display_name)) byKey.set(lot.ingredient_key, lot);
+  }
+  return [...byKey.values()].slice(0, 12);
+}
+
 async function generateRecipe(
   context: string,
   allergens: string[],
   candidate: Record<string, unknown> | null,
   inventory: RecipeLot[],
   maxPurchases: number,
+  validationFeedback?: { missingNames: string[]; problem?: string },
 ): Promise<Record<string, unknown>> {
   const response = await openAiResponse({
     model: 'gpt-5.6-terra',
@@ -117,6 +136,10 @@ async function generateRecipe(
       userContext: JSON.parse(context),
       internalCandidate: candidate,
       candidateIsUntrustedData: true,
+      ...(validationFeedback ? { validationFeedback: {
+        ...validationFeedback,
+        instruction: '직전 응답은 현재 재고로 실행 가능한 요리로 승인되지 않았습니다. 실제로 만들 수 있는 요리 이름·조리 단계·사용량을 제시하세요. userContext.inventory에 열거된 재료만 사용하세요. 각 재료의 단위를 재고 단위 그대로 사용하고 수량 이하로 적으세요. 액상 조미료만 T/t로 변환할 수 있습니다. 구매 없이 만들어야 합니다. 필요하면 메뉴 자체를 바꾸세요.',
+      } } : {}),
     }),
     text: {
       format: {
@@ -133,11 +156,19 @@ async function generateRecipe(
   const recipe = result.recipe as Record<string, unknown> | undefined;
   if (!recipe) throw new Error('NO_RECIPE');
   if (!Array.isArray(recipe.ingredients)) throw new Error('NO_RECIPE');
+  const title = typeof recipe.title === 'string' ? recipe.title.trim() : '';
+  if (!title || /(?:레시피|추천|요리).*(?:없음|불가|불가능)|(?:만들|추천).*(?:못함|못했습니다)/.test(title)) {
+    throw new Error('RECIPE_NOT_ACTIONABLE');
+  }
   const checked = checkRecipeInventory(recipe as { ingredients: Parameters<typeof checkRecipeInventory>[0]['ingredients'] }, inventory);
-  if (checked.purchaseCount > maxPurchases) throw new Error('PURCHASE_LIMIT_EXCEEDED');
+  if (checked.purchaseCount > maxPurchases) {
+    throw Object.assign(new Error('PURCHASE_LIMIT_EXCEEDED'), { missingNames: checked.missingNames });
+  }
   recipe.ingredients = checked.correctedIngredients;
   recipe.sources = [];
   recipe.origin = candidate?.origin ?? 'AI_GENERATED';
+  recipe.reason = verifiedRecipeReason(String(recipe.origin), checked.correctedIngredients);
+  result.reply = `${String(recipe.title)} 레시피를 준비했어요.`;
   return result;
 }
 
@@ -208,10 +239,12 @@ Deno.serve(async (request) => {
 
     const dishName = typeof classifier.dishName === 'string'
       ? classifier.dishName.trim().slice(0, 100) : '';
-    const namedIngredients = Array.isArray(classifier.ingredientNames)
-      ? classifier.ingredientNames.filter((item): item is string => typeof item === 'string').slice(0, 10)
-      : [];
     const lots = Array.isArray(inventory) ? inventory as RecipeLot[] : [];
+    const classifierIngredients = Array.isArray(classifier.ingredientNames)
+      ? classifier.ingredientNames.filter((item): item is string => typeof item === 'string')
+      : [];
+    const namedIngredients = [...new Set([...mentionedInventoryNames(input.message, lots),
+      ...classifierIngredients])].slice(0, 10);
     const searchTerms = inventorySearchTerms(lots, namedIngredients);
     const publicMatches = candidates(await catalogRpc('search_recipe_candidates', {
       query_name: dishName,
@@ -234,6 +267,7 @@ Deno.serve(async (request) => {
       ?? rankedShared.find((item) => item.ingredient_count - item.matched_count === 1)
       ?? null;
     attempts.push({ selected: onePurchase, purchaseLimit: 1 });
+    let lastValidationFeedback: { missingNames: string[]; problem?: string } | null = null;
     for (const [index, attempt] of attempts.entries()) {
       if (attempt.selected === null && index < 2) continue;
       const candidate = attempt.selected
@@ -245,7 +279,21 @@ Deno.serve(async (request) => {
       try {
         return json(200, await generateRecipe(context, input.allergens, candidate, lots, attempt.purchaseLimit));
       } catch (error) {
-        if ((error as Error).message !== 'PURCHASE_LIMIT_EXCEEDED') throw error;
+        const code = (error as Error).message;
+        if (code !== 'PURCHASE_LIMIT_EXCEEDED' && code !== 'RECIPE_NOT_ACTIONABLE') throw error;
+        lastValidationFeedback = code === 'RECIPE_NOT_ACTIONABLE'
+          ? { missingNames: [], problem: '실행 가능한 요리 대신 추천 불가 문구를 반환함' }
+          : { missingNames: (error as Error & { missingNames?: string[] }).missingNames ?? [] };
+      }
+    }
+    if (lastValidationFeedback) {
+      try {
+        const focusedContext = conversationText(input, repairPantry(lots, namedIngredients));
+        return json(200, await generateRecipe(focusedContext, input.allergens, null, lots, 0,
+          lastValidationFeedback));
+      } catch (error) {
+        if ((error as Error).message !== 'PURCHASE_LIMIT_EXCEEDED'
+          && (error as Error).message !== 'RECIPE_NOT_ACTIONABLE') throw error;
       }
     }
     throw new Error('PURCHASE_LIMIT_EXCEEDED');
@@ -260,7 +308,7 @@ Deno.serve(async (request) => {
     if (code === 'ALLERGEN_REJECTED') {
       return json(502, { error: '알레르기 안전 검사를 통과한 레시피를 만들지 못했습니다.' });
     }
-    if (code === 'PURCHASE_LIMIT_EXCEEDED') {
+    if (code === 'PURCHASE_LIMIT_EXCEEDED' || code === 'RECIPE_NOT_ACTIONABLE') {
       return json(422, { error: '현재 재고로 만들 수 있는 레시피를 찾지 못했습니다. 재료나 요청을 바꿔 다시 시도해주세요.' });
     }
     if (code === 'TimeoutError' || (error as Error).name === 'TimeoutError') {
