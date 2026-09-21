@@ -60,7 +60,7 @@ Wanted AI Championship 2026 출품을 목표로 개발하고 있습니다.
 | Google 로그인 | OAuth 설정 후 연결 예정 |
 | GPT 대화·검색·레시피 재설계 | 공공 DB → 공유 레시피 → Terra 생성 경로 배포. 재고 검증·실패 시 재작성 및 production 게스트 요청 검증 완료 |
 | 공공 레시피 DB | MFDS·MAFRA 레시피 1,684건, 구조화 재료 18,920건, 단계 9,542건 적재·무결성 검증 완료 |
-| 구매내역 OCR | Android·웹 공통 Luna 비전 함수와 검수·등록 구현 완료; production R1~R2 실측, R3~R5 최종 비교 예정 |
+| 구매내역 OCR | Android·웹 공통 Luna 비전 함수와 검수·등록 구현 완료; 심사용 예시 4장 중 예시 1 실측, 예시 2~4 최종 비교 예정 |
 | 웹 배포 | EAS Hosting production 배포 및 게스트 로그인·원격 재고·GPT 채팅 검증 완료 |
 | Android APK | 웹 UI 검수와 디자인 확정 후 EAS 내부 배포 빌드 예정 |
 | EAS Update | Android production 채널과 `appVersion` runtime 정책 설정 완료 |

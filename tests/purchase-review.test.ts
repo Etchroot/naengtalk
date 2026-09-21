@@ -93,7 +93,7 @@ test('final payload rejects invalid dates and maps valid edited rows', () => {
     quantity: 300,
     unit: 'g',
     use_by_at: '2026-09-13',
-    date_source: 'user_override',
+    date_source: 'estimated',
     storage_method: 'refrigerated',
     import_resolution: 'user_edited',
     internal_note: null,
@@ -132,13 +132,23 @@ test('missing sourced date remains blank and blocks registration until user ente
   assert.deepEqual(validatePurchaseReviewRows([row], '2026-09-10'), [row.id]);
 });
 
-test('review preserves frozen storage and correcting storage requires a new date', () => {
+test('changing review storage keeps an existing estimated date and its provenance', () => {
   const build = Reflect.get(review, 'buildPurchaseReviewRows');
   const update = Reflect.get(review, 'updatePurchaseReviewRow');
   const payload = Reflect.get(review, 'toInventoryImportPayload');
   const [row] = build([{ sourceId: 'R1', items: [{ ...tofuItem, productName: '냉동 두부', storageMethod: 'frozen' }] }]);
   assert.equal(payload([row], '2026-09-10')[0].storage_method, 'frozen');
   const changed = update(row, { storageMethod: 'refrigerated' }, '2026-09-10');
-  assert.equal(changed.useByDate, '');
-  assert.equal(changed.needsReview, true);
+  assert.equal(changed.useByDate, '2026-09-13');
+  assert.equal(changed.needsReview, false);
+  assert.equal(payload([changed], '2026-09-10')[0].date_source, 'estimated');
+});
+
+test('editing the review date marks it as a user override', () => {
+  const build = Reflect.get(review, 'buildPurchaseReviewRows');
+  const update = Reflect.get(review, 'updatePurchaseReviewRow');
+  const payload = Reflect.get(review, 'toInventoryImportPayload');
+  const [row] = build([{ sourceId: 'R1', items: [tofuItem] }]);
+  const changed = update(row, { useByDate: '2026-09-20' }, '2026-09-10');
+  assert.equal(payload([changed], '2026-09-10')[0].date_source, 'user_override');
 });

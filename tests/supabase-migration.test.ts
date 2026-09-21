@@ -17,6 +17,11 @@ const sharedShelfLifeMigration = readFileSync(
   'utf8',
 ).toLowerCase();
 
+const workbookShelfLifeMigration = readFileSync(
+  new URL('../supabase/migrations/202609210001_shelf_life_workbook_sources.sql', import.meta.url),
+  'utf8',
+).toLowerCase();
+
 const inventoryParseRateLimitMigration = readFileSync(
   new URL('../supabase/migrations/202609110001_inventory_parse_rate_limit.sql', import.meta.url),
   'utf8',
@@ -49,6 +54,16 @@ test('shared shelf-life rules are client read-only and uniquely keyed by storage
   assert.match(sharedShelfLifeMigration, /grant select on table public\.shelf_life_rules to authenticated/);
   assert.doesNotMatch(sharedShelfLifeMigration, /grant[^;]*(insert|update|delete)[^;]*shelf_life_rules[^;]*authenticated/);
   assert.match(sharedShelfLifeMigration, /status = 'active'/);
+});
+
+test('workbook source rows are private; URLs are optional only for non-web evidence', () => {
+  assert.match(workbookShelfLifeMigration, /create table if not exists public\.shelf_life_source_entries/);
+  assert.match(workbookShelfLifeMigration, /enable row level security/);
+  assert.match(workbookShelfLifeMigration, /revoke all on table public\.shelf_life_source_entries from public, anon, authenticated/);
+  assert.match(workbookShelfLifeMigration, /alter column source_url drop not null/);
+  assert.match(workbookShelfLifeMigration, /evidence_type <> 'ai_sourced' or source_url is not null/);
+  assert.match(workbookShelfLifeMigration, /'ai_estimated_approved'/);
+  assert.match(workbookShelfLifeMigration, /duration_days between 1 and 36525/);
 });
 
 test('inventory import RPC is owner-scoped, idempotent, and callable only after authentication', () => {

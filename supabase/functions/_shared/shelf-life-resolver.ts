@@ -1,11 +1,13 @@
 import {
   buildShelfLifeSearchRequest,
+  buildShelfLifeEstimateRequest,
   curatedShelfLifeRules,
   shelfLifeLookupForItem,
   enrichItemsWithShelfLife,
   extractWebSourceUrls,
   hasConflictingStorage,
   parseShelfLifeSearchResponse,
+  parseShelfLifeEstimateResponse,
   partitionShelfLifeLookups,
   type ShelfLifeCategory,
   type ShelfLifeLookup,
@@ -30,8 +32,9 @@ type CacheRow = {
   package_state: ShelfLifeRule['packageState'];
   duration_days: number;
   source_title: string;
-  source_url: string;
+  source_url: string | null;
   source_checked_at: string;
+  evidence_type: 'curated' | 'ai_sourced' | 'ai_estimated' | 'ai_estimated_approved';
   confidence: number;
 };
 
@@ -57,11 +60,11 @@ function outputText(response: Record<string, unknown>): string {
   throw new Error('OPENAI_EMPTY');
 }
 
-function uniqueLookups(items: OcrItem[]): ShelfLifeLookup[] {
+function uniqueLookups(items: OcrItem[], knownRules: ShelfLifeRule[] = []): ShelfLifeLookup[] {
   const byKey = new Map<string, ShelfLifeLookup>();
   for (const item of items) {
     if (!item.isFood || hasConflictingStorage(item.productName)) continue;
-    const lookup = shelfLifeLookupForItem(item);
+    const lookup = shelfLifeLookupForItem(item, knownRules);
     byKey.set(`${lookup.canonicalKey}|${lookup.storageMethod}|${lookup.packageState}`, lookup);
   }
   return [...byKey.values()];
@@ -80,7 +83,7 @@ async function readCachedRules(lookups: ShelfLifeLookup[], config: ResolverConfi
   const keys = [...new Set(lookups.map((lookup) => lookup.canonicalKey))];
   const filter = `in.(${keys.map((key) => `"${key.replaceAll('"', '')}"`).join(',')})`;
   const params = new URLSearchParams({
-    select: 'canonical_key,canonical_name,category,storage_method,package_state,duration_days,source_title,source_url,source_checked_at,confidence',
+    select: 'canonical_key,canonical_name,category,storage_method,package_state,duration_days,source_title,source_url,source_checked_at,evidence_type,confidence',
     status: 'eq.active',
     canonical_key: filter,
   });
@@ -99,12 +102,12 @@ async function readCachedRules(lookups: ShelfLifeLookup[], config: ResolverConfi
     sourceTitle: row.source_title,
     sourceUrl: row.source_url,
     sourceCheckedAt: row.source_checked_at,
+    evidenceType: row.evidence_type,
     confidence: Number(row.confidence),
   }));
 }
 
-async function searchMissingRules(misses: ShelfLifeLookup[], config: ResolverConfig): Promise<ShelfLifeRule[]> {
-  if (!misses.length) return [];
+async function searchBatch(misses: ShelfLifeLookup[], config: ResolverConfig): Promise<ShelfLifeRule[]> {
   const response = await fetch('https://api.openai.com/v1/responses', {
     method: 'POST',
     signal: AbortSignal.timeout(30_000),
@@ -123,6 +126,48 @@ async function searchMissingRules(misses: ShelfLifeLookup[], config: ResolverCon
   ));
 }
 
+async function searchMissingRules(misses: ShelfLifeLookup[], config: ResolverConfig): Promise<ShelfLifeRule[]> {
+  const batches: ShelfLifeLookup[][] = [];
+  for (let index = 0; index < misses.length; index += 3) batches.push(misses.slice(index, index + 3));
+  const found: ShelfLifeRule[] = [];
+  for (let index = 0; index < batches.length; index += 3) {
+    const results = await Promise.allSettled(batches.slice(index, index + 3)
+      .map((batch) => searchBatch(batch, config)));
+    for (const result of results) {
+      if (result.status === 'fulfilled') found.push(...result.value);
+    }
+  }
+  return found;
+}
+
+async function estimateBatch(misses: ShelfLifeLookup[], config: ResolverConfig): Promise<ShelfLifeRule[]> {
+  const response = await fetch('https://api.openai.com/v1/responses', {
+    method: 'POST', signal: AbortSignal.timeout(30_000),
+    headers: { authorization: `Bearer ${config.openAiKey}`, 'Content-Type': 'application/json' },
+    body: JSON.stringify(buildShelfLifeEstimateRequest(misses)),
+  });
+  if (!response.ok) throw new Error(`OPENAI_ESTIMATE_${response.status}`);
+  const payload = await response.json() as Record<string, unknown>;
+  const expected = new Set(misses.map((lookup) =>
+    `${lookup.canonicalKey}|${lookup.storageMethod}|${lookup.packageState}`));
+  return parseShelfLifeEstimateResponse(JSON.parse(outputText(payload))).filter((rule) => expected.has(
+    `${rule.canonicalKey}|${rule.storageMethod}|${rule.packageState}`));
+}
+
+async function estimateMissingRules(misses: ShelfLifeLookup[], config: ResolverConfig): Promise<ShelfLifeRule[]> {
+  const batches: ShelfLifeLookup[][] = [];
+  for (let index = 0; index < misses.length; index += 3) batches.push(misses.slice(index, index + 3));
+  const found: ShelfLifeRule[] = [];
+  for (let index = 0; index < batches.length; index += 3) {
+    const results = await Promise.allSettled(batches.slice(index, index + 3)
+      .map((batch) => estimateBatch(batch, config)));
+    for (const result of results) {
+      if (result.status === 'fulfilled') found.push(...result.value);
+    }
+  }
+  return found;
+}
+
 async function upsertRules(rules: ShelfLifeRule[], config: ResolverConfig): Promise<void> {
   if (!rules.length) return;
   const now = new Date().toISOString();
@@ -136,7 +181,7 @@ async function upsertRules(rules: ShelfLifeRule[], config: ResolverConfig): Prom
     source_title: rule.sourceTitle,
     source_url: rule.sourceUrl,
     source_checked_at: now,
-    evidence_type: 'ai_sourced',
+    evidence_type: rule.evidenceType ?? 'ai_sourced',
     confidence: rule.confidence,
     status: 'active',
     updated_at: now,
@@ -158,13 +203,14 @@ export async function resolveShelfLifeForOcr(
   config: ResolverConfig,
 ): Promise<Record<string, unknown>> {
   const items = Array.isArray(result.items) ? result.items as OcrItem[] : [];
-  const lookups = uniqueLookups(items);
+  const initialLookups = uniqueLookups(items);
   let cached: ShelfLifeRule[] = [];
   try {
-    cached = await readCachedRules(lookups, config);
+    cached = await readCachedRules(initialLookups, config);
   } catch {
     cached = [];
   }
+  const lookups = uniqueLookups(items, cached);
   const checkedAt = new Date().toISOString();
   const curated = curatedShelfLifeRules(lookups, checkedAt);
   const { hits, misses } = partitionShelfLifeLookups(
@@ -175,11 +221,25 @@ export async function resolveShelfLifeForOcr(
   let searched: ShelfLifeRule[] = [];
   try {
     searched = await searchMissingRules(misses, config);
-    await upsertRules(searched, config);
   } catch {
     searched = [];
   }
-  const freshRules = [...hits.map(({ rule }) => rule), ...searched.map((rule) => ({
+  const sourcedKeys = new Set(searched.map((rule) =>
+    `${rule.canonicalKey}|${rule.storageMethod}|${rule.packageState}`));
+  const unverified = misses.filter((lookup) => !sourcedKeys.has(
+    `${lookup.canonicalKey}|${lookup.storageMethod}|${lookup.packageState}`));
+  let estimated: ShelfLifeRule[] = [];
+  try {
+    estimated = await estimateMissingRules(unverified, config);
+  } catch {
+    estimated = [];
+  }
+  try {
+    await upsertRules([...searched, ...estimated], config);
+  } catch {
+    // Search results remain usable for this request if the shared cache is temporarily unavailable.
+  }
+  const freshRules = [...hits.map(({ rule }) => rule), ...[...searched, ...estimated].map((rule) => ({
     ...rule,
     sourceCheckedAt: checkedAt,
   }))];

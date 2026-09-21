@@ -1,6 +1,7 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
 import { createGuestInventory } from '../mobile/src/domain/seed.ts';
+import { readFileSync } from 'node:fs';
 
 const guestDemoModule = await import('../mobile/src/domain/guest-demo.ts').catch(() => ({}));
 
@@ -58,4 +59,17 @@ test('guest count-based foods start at ten units without changing weighted pantr
   assert.equal(inventory.find((food) => food.name === '무')?.quantity, 10);
   assert.equal(inventory.find((food) => food.name === '양배추')?.quantity, 10);
   assert.equal(inventory.find((food) => food.name === '두부')?.quantity, 300);
+});
+
+test('guest salt keeps the approved fixed 2127 use-by date locally and remotely', () => {
+  const inventory = createGuestInventory('2026-09-21');
+  assert.equal(inventory.find((food) => food.name === '소금')?.useBy, '2127-03-20');
+
+  const migration = readFileSync(
+    new URL('../supabase/migrations/202609210003_guest_salt_use_by.sql', import.meta.url),
+    'utf8',
+  ).toLowerCase();
+  assert.match(migration, /'salt','소금',500,'g',\(date '2127-03-20' - current_date\)/);
+  assert.match(migration, /set use_by_at = date '2127-03-20'/);
+  assert.match(migration, /p\.is_guest = true/);
 });

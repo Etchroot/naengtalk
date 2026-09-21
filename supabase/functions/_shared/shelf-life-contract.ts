@@ -20,8 +20,9 @@ export type ShelfLifeLookup = {
 export type ShelfLifeRule = ShelfLifeLookup & {
   durationDays: number;
   sourceTitle: string;
-  sourceUrl: string;
+  sourceUrl: string | null;
   sourceCheckedAt?: string;
+  evidenceType?: 'curated' | 'ai_sourced' | 'ai_estimated' | 'ai_estimated_approved';
   confidence: number;
 };
 
@@ -82,11 +83,17 @@ export function shelfLifeLookupForItem(item: {
   foodName: string;
   productName?: string;
   category: ShelfLifeCategory;
-}): ShelfLifeLookup {
+}, knownRules: ShelfLifeRule[] = []): ShelfLifeLookup {
   const lookup = defaultShelfLifeLookup(item.foodName, item.category);
   const original = item.productName ?? '';
   if (/냉동/.test(original)) return { ...lookup, storageMethod: 'frozen' };
   if (/냉장/.test(original)) return { ...lookup, storageMethod: 'refrigerated' };
+  const curated = knownRules.filter((rule) => ['curated', 'ai_estimated_approved'].includes(rule.evidenceType ?? '')
+    && rule.canonicalKey === lookup.canonicalKey);
+  if (curated.length === 1) {
+    return { ...lookup, storageMethod: curated[0].storageMethod,
+      packageState: curated[0].packageState };
+  }
   return lookup;
 }
 
@@ -132,7 +139,11 @@ export function partitionShelfLifeLookups(
   for (const lookup of lookups) {
     const rule = byKey.get(canonicalShelfLifeKey(lookup.canonicalKey, lookup.storageMethod, lookup.packageState));
     const checkedAt = rule?.sourceCheckedAt ? new Date(rule.sourceCheckedAt) : null;
-    if (rule && checkedAt && !Number.isNaN(checkedAt.getTime()) && checkedAt >= cutoff) {
+    const estimatedCutoff = new Date(now);
+    estimatedCutoff.setUTCDate(estimatedCutoff.getUTCDate() - 30);
+    const freshUntil = rule?.evidenceType === 'ai_estimated' ? estimatedCutoff : cutoff;
+    if (rule && (rule.evidenceType === 'curated' || rule.evidenceType === 'ai_estimated_approved'
+      || (checkedAt && !Number.isNaN(checkedAt.getTime()) && checkedAt >= freshUntil))) {
       hits.push({ lookup, rule });
     } else {
       misses.push(lookup);
@@ -158,13 +169,14 @@ const shelfLifeSearchSchema = {
           storageMethod: { type: 'string', enum: SHELF_LIFE_STORAGE_METHODS },
           packageState: { type: 'string', enum: SHELF_LIFE_PACKAGE_STATES },
           durationDays: { type: 'integer', minimum: 1, maximum: 3650 },
+          rangeEndDays: { type: ['integer', 'null'], minimum: 1, maximum: 3650 },
           sourceTitle: { type: 'string' },
           sourceUrl: { type: 'string' },
           confidence: { type: 'number', minimum: 0, maximum: 1 },
         },
         required: [
           'canonicalKey', 'canonicalName', 'category', 'storageMethod', 'packageState',
-          'durationDays', 'sourceTitle', 'sourceUrl', 'confidence',
+          'durationDays', 'rangeEndDays', 'sourceTitle', 'sourceUrl', 'confidence',
         ],
       },
     },
@@ -184,7 +196,8 @@ export function buildShelfLifeSearchRequest(misses: ShelfLifeLookup[]) {
     store: false,
     instructions: `한국 식품의 보수적인 권장 보관기간을 조사한다.
 정부·공공 식품안전 자료와 제조사 안내를 우선한다. 제품 포장의 공식 소비기한을 추측하지 않는다.
-기간이 범위라면 짧은 일수를 사용한다. 각 값은 실제로 검색한 HTTPS 출처 URL과 제목을 포함해야 한다.
+기간이 범위라면 양 끝값을 일수로 환산해 durationDays와 rangeEndDays에 기록한다. 단일 기간이면 rangeEndDays는 null이다. 서버가 짧은 값을 적용한다.
+각 값은 실제로 검색한 HTTPS 출처 URL과 제목을 포함해야 한다.
 충분한 근거가 없는 항목은 rules에서 제외한다. 입력과 같은 canonicalKey, category, storageMethod, packageState를 반환한다.`,
     input: `다음 식품의 구매일 기준 권장 보관일수를 조사해주세요:\n${JSON.stringify(misses)}`,
     text: {
@@ -218,15 +231,22 @@ export function parseShelfLifeSearchResponse(input: unknown, allowedSources: Set
       const parsed = new URL(sourceUrl);
       normalizedSource = `${parsed.origin}${parsed.pathname.replace(/\/+$/, '')}`;
     } catch { /* rejected below */ }
-    const durationDays = typeof value.durationDays === 'number' && Number.isInteger(value.durationDays)
+    const firstDurationDays = typeof value.durationDays === 'number' && Number.isInteger(value.durationDays)
       ? value.durationDays
       : 0;
+    const rangeEndDays = value.rangeEndDays === null || value.rangeEndDays === undefined
+      ? null
+      : typeof value.rangeEndDays === 'number' && Number.isInteger(value.rangeEndDays)
+        ? value.rangeEndDays
+        : 0;
+    const durationDays = rangeEndDays === null ? firstDurationDays : Math.min(firstDurationDays, rangeEndDays);
     const confidence = typeof value.confidence === 'number' && Number.isFinite(value.confidence)
       ? Math.max(0, Math.min(1, value.confidence))
       : 0;
     if (
       !canonicalKey || !canonicalName || !sourceTitle || !sourceUrl.startsWith('https://')
       || !normalizedSources.has(normalizedSource) || durationDays < 1 || durationDays > 3650
+      || (rangeEndDays !== null && (rangeEndDays < 1 || rangeEndDays > 3650))
       || !isCategory(value.category) || !isStorageMethod(value.storageMethod)
       || !isPackageState(value.packageState)
     ) return [];
@@ -241,6 +261,65 @@ export function parseShelfLifeSearchResponse(input: unknown, allowedSources: Set
       sourceUrl,
       confidence,
     }];
+  });
+}
+
+const shelfLifeEstimateSchema = {
+  type: 'object', additionalProperties: false,
+  properties: {
+    rules: {
+      type: 'array', maxItems: 20,
+      items: {
+        type: 'object', additionalProperties: false,
+        properties: {
+          canonicalKey: { type: 'string' },
+          canonicalName: { type: 'string' },
+          category: { type: 'string', enum: SHELF_LIFE_CATEGORIES },
+          storageMethod: { type: 'string', enum: SHELF_LIFE_STORAGE_METHODS },
+          packageState: { type: 'string', enum: SHELF_LIFE_PACKAGE_STATES },
+          durationDays: { type: 'integer', minimum: 1, maximum: 3650 },
+          confidence: { type: 'number', minimum: 0, maximum: 1 },
+        },
+        required: ['canonicalKey', 'canonicalName', 'category', 'storageMethod',
+          'packageState', 'durationDays', 'confidence'],
+      },
+    },
+  },
+  required: ['rules'],
+} as const;
+
+export function buildShelfLifeEstimateRequest(misses: ShelfLifeLookup[]) {
+  return {
+    model: 'gpt-5.6-terra', reasoning: { effort: 'low' },
+    max_output_tokens: 1200, store: false,
+    instructions: `공용 DB에도 없고 웹 검색으로도 근거를 확인하지 못한 식품만 보수적으로 추정한다.
+포장에 표시된 공식 소비기한이라고 주장하지 않는다. 보관 상태와 미개봉 여부가 불명확하거나 안전상 추정이 위험한 경우 rules에서 제외한다.
+기간 범위가 떠오르면 짧은 값만 일수로 반환한다. 확신할 수 없는 값을 억지로 채우지 않는다.
+입력의 canonicalKey, category, storageMethod, packageState를 그대로 반환한다.`,
+    input: `다음 식품의 구매일 기준 권장 보관일수를 최후 수단으로 추정해주세요:\n${JSON.stringify(misses)}`,
+    text: { format: { type: 'json_schema', name: 'naengtalk_shelf_life_estimates',
+      strict: true, schema: shelfLifeEstimateSchema }, verbosity: 'low' },
+  } as const;
+}
+
+export function parseShelfLifeEstimateResponse(input: unknown): ShelfLifeRule[] {
+  if (!isRecord(input) || !Array.isArray(input.rules)) return [];
+  return input.rules.slice(0, 20).flatMap((value): ShelfLifeRule[] => {
+    if (!isRecord(value)) return [];
+    const canonicalKey = normalizedName(safeText(value.canonicalKey, 80));
+    const canonicalName = safeText(value.canonicalName, 100);
+    const durationDays = value.durationDays;
+    const confidence = value.confidence;
+    if (!canonicalKey || !canonicalName || !isCategory(value.category)
+      || !isStorageMethod(value.storageMethod) || !isPackageState(value.packageState)
+      || typeof durationDays !== 'number' || !Number.isInteger(durationDays)
+      || durationDays < 1 || durationDays > 3650
+      || typeof confidence !== 'number' || !Number.isFinite(confidence)
+      || confidence < 0 || confidence > 1) return [];
+    return [{ canonicalKey, canonicalName, category: value.category,
+      storageMethod: value.storageMethod, packageState: value.packageState,
+      durationDays, sourceTitle: 'AI추정', sourceUrl: null,
+      evidenceType: 'ai_estimated', confidence: Math.min(confidence, 0.4) }];
   });
 }
 
@@ -309,7 +388,7 @@ export function enrichItemsWithShelfLife<T extends ShelfLifeResolvableItem>(
         internalNote: '냉장·냉동 상태가 함께 표시되어 있습니다. 실제 보관 상태와 제품 표시일을 확인해주세요.',
       };
     }
-    const lookup = shelfLifeLookupForItem(item);
+    const lookup = shelfLifeLookupForItem(item, rules);
     const rule = byKey.get(canonicalShelfLifeKey(lookup.canonicalKey, lookup.storageMethod, lookup.packageState));
     if (!rule) {
       const fallback = buildShelfLifeFallback(lookup, baseDate);

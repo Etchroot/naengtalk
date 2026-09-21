@@ -29,6 +29,7 @@ export type PurchaseReviewRow = {
   needsReview: boolean;
   originalNeedsReview: boolean;
   edited: boolean;
+  useByDateEdited: boolean;
   importResolution: 'auto' | 'user_confirmed' | 'user_edited';
   internalNote: string | null;
 };
@@ -97,6 +98,7 @@ function rowsFromAnalyses(analyses: PurchaseAnalysis[]): PurchaseReviewRow[] {
       needsReview,
       originalNeedsReview: needsReview,
       edited: false,
+      useByDateEdited: false,
       importResolution: needsReview ? 'user_confirmed' : 'auto',
       internalNote: item.internalNote ?? item.note,
     }];
@@ -131,9 +133,10 @@ export function updatePurchaseReviewRow(
   const updated: PurchaseReviewRow = {
     ...row,
     ...patch,
-    useByDate: patch.storageMethod !== undefined && patch.storageMethod !== row.storageMethod
-      ? '' : patch.useByDate ?? row.useByDate,
+    useByDate: patch.useByDate ?? row.useByDate,
     edited: true,
+    useByDateEdited: row.useByDateEdited
+      || (patch.useByDate !== undefined && patch.useByDate !== row.useByDate),
     importResolution: 'user_edited',
   };
   return { ...updated, needsReview: !hasValidFields(updated, today) };
@@ -156,7 +159,7 @@ export function toInventoryImportPayload(rows: PurchaseReviewRow[], today: strin
       quantity: parsed.quantity,
       unit: parsed.unit,
       use_by_at: row.useByDate,
-      date_source: row.edited ? 'user_override' : 'estimated',
+      date_source: row.useByDateEdited ? 'user_override' : 'estimated',
       storage_method: row.storageMethod,
       import_resolution: row.edited
         ? 'user_edited'

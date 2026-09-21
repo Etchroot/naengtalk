@@ -1564,7 +1564,7 @@ export default function NaengTalk() {
                     </Text>
                   ) : null}
                   <Text style={[s.muted, { marginBottom: 12 }]}>
-                    {breakSentences("재고명, 수량, 권장 소진일을 확인해주세요. 원본 이미지는 저장하지 않습니다.")}
+                    {breakSentences("재고명, 수량, 권장 소진일을 확인해주세요. 권장 소진일은 AI가 예측해서 기록됩니다. 원본 이미지는 저장하지 않습니다.")}
                   </Text>
                   {purchaseRows.map((row) => (
                     <View

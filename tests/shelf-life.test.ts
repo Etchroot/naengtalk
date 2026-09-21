@@ -53,6 +53,31 @@ test('fresh cache hits are reused while missing and year-old rules are searched'
   assert.deepEqual(result.misses.map((entry: { canonicalName: string }) => entry.canonicalName), ['즉석밥']);
 });
 
+test('curated rules do not require URLs or expire into web searches; AI estimates are short-lived', () => {
+  const partition = Reflect.get(shelfLife, 'partitionShelfLifeLookups');
+  const old = '2024-01-01T00:00:00.000Z';
+  const curated = { ...potatoLookup, durationDays: 21, sourceTitle: '미국 농무부',
+    sourceUrl: null, sourceCheckedAt: old, evidenceType: 'curated', confidence: 0.85 };
+  const estimated = { ...potatoLookup, durationDays: 14, sourceTitle: 'AI추정',
+    sourceUrl: null, sourceCheckedAt: old, evidenceType: 'ai_estimated', confidence: 0.3 };
+  assert.equal(partition([potatoLookup], [curated], new Date('2026-09-21')).hits.length, 1);
+  assert.equal(partition([potatoLookup], [estimated], new Date('2026-09-21')).misses.length, 1);
+});
+
+test('AI-only last resort has no web tool, accepts no URL, and rejects invented durations', () => {
+  const build = Reflect.get(shelfLife, 'buildShelfLifeEstimateRequest');
+  const parse = Reflect.get(shelfLife, 'parseShelfLifeEstimateResponse');
+  const request = build([potatoLookup]);
+  assert.equal(request.model, 'gpt-5.6-terra');
+  assert.equal(request.tools, undefined);
+  assert.equal(request.store, false);
+  const good = { ...potatoLookup, durationDays: 21, confidence: 0.8 };
+  assert.deepEqual(parse({ rules: [good, { ...good, durationDays: 99999 }] }), [{
+    ...good, confidence: 0.4, sourceTitle: 'AI추정', sourceUrl: null,
+    evidenceType: 'ai_estimated',
+  }]);
+});
+
 test('web search results are accepted only when their HTTPS source was retrieved', () => {
   const parseShelfLifeSearchResponse = Reflect.get(shelfLife, 'parseShelfLifeSearchResponse');
   assert.equal(typeof parseShelfLifeSearchResponse, 'function');
@@ -87,6 +112,14 @@ test('retrieved source URL query and trailing slash do not invalidate the same c
   const rules = parse(response, new Set(['https://foods.example.org/potato?utm_source=search']));
   assert.equal(rules.length, 1);
   assert.equal(rules[0].sourceUrl, 'https://foods.example.org/potato/');
+});
+
+test('a sourced four-to-eight-week range caches the conservative four-week duration', () => {
+  const parse = Reflect.get(shelfLife, 'parseShelfLifeSearchResponse');
+  const response = { rules: [{ ...potatoLookup, durationDays: 56, rangeEndDays: 28,
+    sourceTitle: '감자 보관 안내', sourceUrl: 'https://foods.example.org/potato', confidence: 0.91 }] };
+  const [rule] = parse(response, new Set(['https://foods.example.org/potato']));
+  assert.equal(rule.durationDays, 28);
 });
 
 test('shelf-life search request uses bounded web search and privacy controls', () => {

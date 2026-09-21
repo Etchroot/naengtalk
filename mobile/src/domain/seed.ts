@@ -16,6 +16,9 @@ export function createGuestInventory(date: string): InventoryItem[] {
     ['beef', '소고기', 300, 'g', 3], ['anchovy', '멸치', 200, 'g', 60],
   ];
   return rows.map(([id, name, quantity, unit, days]) => {
+    if (id === 'salt') {
+      return { id, name, quantity, unit, useBy: '2127-03-20', estimated: true };
+    }
     const useBy = new Date(`${date}T12:00:00Z`); useBy.setUTCDate(useBy.getUTCDate() + days);
     return { id, name, quantity, unit, useBy: useBy.toISOString().slice(0, 10), estimated: true };
   });
