@@ -1,0 +1,374 @@
+<!doctype html>
+<html lang="ko">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <title>냉톡 한글 폰트 비교</title>
+    <link rel="preconnect" href="https://cdn.jsdelivr.net" crossorigin />
+    <link rel="preconnect" href="https://fonts.googleapis.com" />
+    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
+    <link
+      rel="stylesheet"
+      href="https://cdn.jsdelivr.net/gh/sun-typeface/SUIT@2/fonts/variable/woff2/SUIT-Variable.css"
+    />
+    <link
+      rel="stylesheet"
+      href="https://cdn.jsdelivr.net/gh/orioncactus/pretendard@v1.3.9/dist/web/static/pretendard-dynamic-subset.min.css"
+    />
+    <link
+      rel="stylesheet"
+      href="https://fonts.googleapis.com/css2?family=Noto+Sans+KR:wght@400;600;700&display=swap"
+    />
+    <style>
+      @font-face {
+        font-family: "LineSeed";
+        src: url("https://cdn.jsdelivr.net/gh/projectnoonnu/noonfonts_11-01@1.0/LINESeedKR-Rg.woff2") format("woff2");
+        font-style: normal;
+        font-weight: 400;
+        font-display: swap;
+      }
+
+      @font-face {
+        font-family: "LineSeed";
+        src: url("https://cdn.jsdelivr.net/gh/projectnoonnu/noonfonts_11-01@1.0/LINESeedKR-Bd.woff2") format("woff2");
+        font-style: normal;
+        font-weight: 700;
+        font-display: swap;
+      }
+
+      :root {
+        color-scheme: light;
+        --ink: #172119;
+        --muted: #667067;
+        --green: #2f7740;
+        --background: #f5f7f2;
+        --surface: #ffffff;
+        --line: #dce4d9;
+        --fresh: #eef5e9;
+        --sample-size: 22px;
+        --sample-weight: 600;
+      }
+
+      * {
+        box-sizing: border-box;
+      }
+
+      body {
+        margin: 0;
+        color: var(--ink);
+        background: var(--background);
+        font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", "Malgun Gothic", sans-serif;
+      }
+
+      main {
+        width: min(1120px, calc(100% - 32px));
+        margin: 0 auto;
+        padding: 44px 0 64px;
+      }
+
+      .eyebrow {
+        margin: 0 0 8px;
+        color: var(--green);
+        font-size: 13px;
+        font-weight: 700;
+        letter-spacing: 0.08em;
+      }
+
+      h1 {
+        margin: 0;
+        font-size: clamp(28px, 5vw, 44px);
+        line-height: 1.15;
+        letter-spacing: -0.04em;
+      }
+
+      .intro {
+        max-width: 720px;
+        margin: 14px 0 0;
+        color: var(--muted);
+        font-size: 15px;
+        line-height: 1.7;
+      }
+
+      .controls {
+        display: flex;
+        flex-wrap: wrap;
+        gap: 18px 28px;
+        align-items: end;
+        margin: 28px 0 24px;
+        padding: 18px 20px;
+        border: 1px solid var(--line);
+        border-radius: 18px;
+        background: var(--surface);
+      }
+
+      .control {
+        display: grid;
+        gap: 8px;
+        min-width: 180px;
+      }
+
+      .control label {
+        color: var(--muted);
+        font-size: 13px;
+        font-weight: 700;
+      }
+
+      input,
+      select {
+        accent-color: var(--green);
+        font: inherit;
+      }
+
+      select {
+        min-height: 40px;
+        padding: 0 12px;
+        border: 1px solid var(--line);
+        border-radius: 10px;
+        color: var(--ink);
+        background: #fff;
+      }
+
+      output {
+        color: var(--green);
+        font-variant-numeric: tabular-nums;
+      }
+
+      .grid {
+        display: grid;
+        grid-template-columns: repeat(2, minmax(0, 1fr));
+        gap: 16px;
+      }
+
+      .specimen {
+        min-width: 0;
+        overflow: hidden;
+        border: 1px solid var(--line);
+        border-radius: 20px;
+        background: var(--surface);
+        box-shadow: 4px 6px 14px rgb(69 83 67 / 9%);
+      }
+
+      .specimen.recommended {
+        border-color: #84ac8c;
+        box-shadow: 0 0 0 2px rgb(47 119 64 / 9%), 4px 6px 14px rgb(69 83 67 / 9%);
+      }
+
+      .specimen-head {
+        display: flex;
+        gap: 12px;
+        align-items: center;
+        justify-content: space-between;
+        padding: 15px 18px;
+        border-bottom: 1px solid var(--line);
+      }
+
+      .font-name {
+        margin: 0;
+        font-size: 15px;
+        font-weight: 750;
+      }
+
+      .badges {
+        display: flex;
+        flex-wrap: wrap;
+        justify-content: flex-end;
+        gap: 6px;
+      }
+
+      .badge {
+        padding: 4px 8px;
+        border-radius: 999px;
+        color: var(--muted);
+        background: #edf1eb;
+        font-size: 11px;
+        font-weight: 700;
+      }
+
+      .badge.choice {
+        color: #225d31;
+        background: #dff0df;
+      }
+
+      .samples {
+        display: grid;
+        gap: 14px;
+        padding: 18px;
+      }
+
+      .sample-block {
+        padding: 18px;
+        border: 3px solid #fff;
+        border-radius: 16px;
+        background: var(--fresh);
+        box-shadow: 3px 5px 10px rgb(75 87 73 / 12%);
+      }
+
+      .sample-label {
+        margin: 0 0 9px;
+        color: var(--muted);
+        font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", "Malgun Gothic", sans-serif;
+        font-size: 11px;
+        font-weight: 700;
+      }
+
+      .sample-text {
+        margin: 0;
+        overflow-wrap: anywhere;
+        font-size: var(--sample-size);
+        font-weight: var(--sample-weight);
+        line-height: 1.42;
+        letter-spacing: -0.03em;
+      }
+
+      .empty {
+        color: #4d5b50;
+      }
+
+      .system { font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", "Malgun Gothic", sans-serif; }
+      .suit { font-family: "SUIT Variable", "SUIT", sans-serif; }
+      .pretendard { font-family: "Pretendard", sans-serif; }
+      .line-seed { font-family: "LineSeed", sans-serif; }
+      .noto { font-family: "Noto Sans KR", sans-serif; }
+
+      .footer-note {
+        margin: 22px 2px 0;
+        color: var(--muted);
+        font-size: 13px;
+        line-height: 1.65;
+      }
+
+      .footer-note a {
+        color: var(--green);
+        font-weight: 700;
+      }
+
+      @media (max-width: 720px) {
+        main {
+          width: min(100% - 20px, 560px);
+          padding-top: 24px;
+        }
+
+        .grid {
+          grid-template-columns: 1fr;
+        }
+
+        .controls {
+          align-items: stretch;
+        }
+
+        .control {
+          flex: 1 1 180px;
+        }
+      }
+    </style>
+  </head>
+  <body>
+    <main>
+      <p class="eyebrow">NAENGTALK TYPOGRAPHY LAB</p>
+      <h1>냉톡 한글 폰트 비교</h1>
+      <p class="intro">
+        모든 후보에 같은 문구, 크기, 굵기와 카드 표면을 적용했습니다. 제목의 힘과
+        빈 상태 문장의 부드러움을 함께 비교해 보세요.
+      </p>
+
+      <section class="controls" aria-label="비교 설정">
+        <div class="control">
+          <label for="font-size">글자 크기 <output id="font-size-value">22px</output></label>
+          <input id="font-size" type="range" min="16" max="32" value="22" />
+        </div>
+        <div class="control">
+          <label for="font-weight">글자 굵기</label>
+          <select id="font-weight">
+            <option value="400">Regular 400</option>
+            <option value="600" selected>Semibold 600</option>
+            <option value="700">Bold 700</option>
+          </select>
+        </div>
+      </section>
+
+      <section class="grid" aria-label="폰트 후보 비교">
+        <article class="specimen" data-family="system-ui">
+          <header class="specimen-head">
+            <h2 class="font-name">현재 시스템 폰트</h2>
+            <div class="badges"><span class="badge">현재 기기 기준</span></div>
+          </header>
+          <div class="samples system">
+            <div class="sample-block"><p class="sample-label">홈 카드 제목</p><p class="sample-text">먼저 먹으면 좋겠어요</p></div>
+            <div class="sample-block"><p class="sample-label">빈 상태</p><p class="sample-text empty">아직 완료한 요리가 없어요.</p></div>
+          </div>
+        </article>
+
+        <article class="specimen recommended" data-family="SUIT Variable">
+          <header class="specimen-head">
+            <h2 class="font-name">SUIT</h2>
+            <div class="badges"><span class="badge choice">추천</span><span class="badge">웹폰트</span></div>
+          </header>
+          <div class="samples suit">
+            <div class="sample-block"><p class="sample-label">홈 카드 제목</p><p class="sample-text">먼저 먹으면 좋겠어요</p></div>
+            <div class="sample-block"><p class="sample-label">빈 상태</p><p class="sample-text empty">아직 완료한 요리가 없어요.</p></div>
+          </div>
+        </article>
+
+        <article class="specimen" data-family="Pretendard">
+          <header class="specimen-head">
+            <h2 class="font-name">Pretendard</h2>
+            <div class="badges"><span class="badge">웹폰트</span></div>
+          </header>
+          <div class="samples pretendard">
+            <div class="sample-block"><p class="sample-label">홈 카드 제목</p><p class="sample-text">먼저 먹으면 좋겠어요</p></div>
+            <div class="sample-block"><p class="sample-label">빈 상태</p><p class="sample-text empty">아직 완료한 요리가 없어요.</p></div>
+          </div>
+        </article>
+
+        <article class="specimen" data-family="LineSeed">
+          <header class="specimen-head">
+            <h2 class="font-name">LINE Seed Sans KR</h2>
+            <div class="badges"><span class="badge">웹폰트</span></div>
+          </header>
+          <div class="samples line-seed">
+            <div class="sample-block"><p class="sample-label">홈 카드 제목</p><p class="sample-text">먼저 먹으면 좋겠어요</p></div>
+            <div class="sample-block"><p class="sample-label">빈 상태</p><p class="sample-text empty">아직 완료한 요리가 없어요.</p></div>
+          </div>
+        </article>
+
+        <article class="specimen" data-family="Noto Sans KR">
+          <header class="specimen-head">
+            <h2 class="font-name">Noto Sans KR</h2>
+            <div class="badges"><span class="badge">웹폰트</span></div>
+          </header>
+          <div class="samples noto">
+            <div class="sample-block"><p class="sample-label">홈 카드 제목</p><p class="sample-text">먼저 먹으면 좋겠어요</p></div>
+            <div class="sample-block"><p class="sample-label">빈 상태</p><p class="sample-text empty">아직 완료한 요리가 없어요.</p></div>
+          </div>
+        </article>
+      </section>
+
+      <p class="footer-note">
+        웹폰트를 실제로 내려받아 비교하므로 인터넷 연결이 필요합니다. 이 페이지는 검토용이며
+        앱에는 아직 어떤 후보도 적용하지 않았습니다. 출처:
+        <a href="https://github.com/sun-typeface/SUIT">SUIT</a>,
+        <a href="https://github.com/orioncactus/pretendard">Pretendard</a>,
+        <a href="https://seed.line.me/index_kr.html">LINE Seed</a>,
+        <a href="https://fonts.google.com/noto/specimen/Noto+Sans+KR">Noto Sans KR</a>.
+      </p>
+    </main>
+
+    <script>
+      const root = document.documentElement;
+      const sizeInput = document.querySelector('#font-size');
+      const sizeOutput = document.querySelector('#font-size-value');
+      const weightSelect = document.querySelector('#font-weight');
+
+      sizeInput.addEventListener('input', () => {
+        const value = `${sizeInput.value}px`;
+        root.style.setProperty('--sample-size', value);
+        sizeOutput.value = value;
+      });
+
+      weightSelect.addEventListener('change', () => {
+        root.style.setProperty('--sample-weight', weightSelect.value);
+      });
+
+    </script>
+  </body>
+</html>

@@ -6,13 +6,13 @@ import {
   Platform,
   Pressable,
   ScrollView,
-  Text,
   TextInput,
   useWindowDimensions,
   View,
 } from "react-native";
-import { SafeAreaView } from "react-native-safe-area-context";
+import { SafeAreaView, useSafeAreaInsets } from "react-native-safe-area-context";
 import AsyncStorage from "@react-native-async-storage/async-storage";
+import { Text } from "../components/app-text.tsx";
 import {
   Home,
   MessageCircle,
@@ -35,7 +35,12 @@ import { createGuestInventory, createGuestTools } from "../domain/seed.ts";
 import { recipeDisplayReason } from "../domain/recipe-provenance.ts";
 import { resetGuestDemoInventory } from "../domain/guest-demo.ts";
 import {
+  getCompactHeaderMetrics,
+  getRefrigeratorDoorSurface,
+  getRefrigeratorHandlePlacement,
+  getRefrigeratorHandleScaleY,
   getHomeActionTitleFontSize,
+  getToolCardLayout,
   getUrgentCardMinHeight,
   getUrgentInventoryLimit,
 } from "../domain/home-layout.ts";
@@ -51,8 +56,11 @@ import {
   type InventorySortMode,
 } from "../domain/inventory-presentation.ts";
 import {
+  getChatComposerLayout,
   getAndroidWebFrame,
+  getKeyboardAwareWebFrame,
   getPhoneShellStyle,
+  getResponsiveAppCanvas,
 } from "../domain/web-frame.ts";
 import { breakSentences } from "../domain/readable-text.ts";
 import {
@@ -215,8 +223,30 @@ function Button({
     </Pressable>
   );
 }
+
+function RefrigeratorHandle({
+  tone,
+}: {
+  tone: "fresh" | "warm" | "neutral";
+}) {
+  const placement = getRefrigeratorHandlePlacement(tone);
+  return (
+    <Image
+      source={require("../../assets/images/refrigerator-handle.png")}
+      resizeMode="stretch"
+      style={[
+        s.refrigeratorHandle,
+        placement === "bottom"
+          ? s.refrigeratorHandleBottom
+          : s.refrigeratorHandleTop,
+        { transform: [{ scaleY: getRefrigeratorHandleScaleY(tone) }] },
+      ]}
+    />
+  );
+}
 export default function NaengTalk() {
   const viewport = useWindowDimensions();
+  const safeAreaInsets = useSafeAreaInsets();
   const [state, setState] = useState<LocalState>(fresh);
   const [ready, setReady] = useState(false);
   const [loggedIn, setLoggedIn] = useState(false);
@@ -242,6 +272,7 @@ export default function NaengTalk() {
     kind: "chat" | "recipe"; rowId: string; name: string; available: number; unit: string;
   } | null>(null);
   const [input, setInput] = useState("");
+  const [chatInputFocused, setChatInputFocused] = useState(false);
   const [aiBusy, setAiBusy] = useState(false);
   const [shareConsentVisible, setShareConsentVisible] = useState(false);
   const [shareBusy, setShareBusy] = useState(false);
@@ -252,27 +283,63 @@ export default function NaengTalk() {
   const [sortMenu, setSortMenu] = useState(false);
   const lock = useRef(false);
   const recipeScroll = useRef<ScrollView>(null);
-  const frame = getAndroidWebFrame(viewport.width, viewport.height);
+  const stableWebViewport = useRef({ width: viewport.width, height: viewport.height });
+  const chatBlurTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
+  if (Platform.OS === "web" && !chatInputFocused) {
+    stableWebViewport.current = { width: viewport.width, height: viewport.height };
+  }
+  const webFrameState = getKeyboardAwareWebFrame(
+    { width: viewport.width, height: viewport.height },
+    stableWebViewport.current,
+    Platform.OS === "web" && chatInputFocused,
+  );
+  const frame = Platform.OS === "web"
+    ? webFrameState.frame
+    : {
+        width: Math.max(0, viewport.width - safeAreaInsets.left - safeAreaInsets.right),
+        height: Math.max(0, viewport.height - safeAreaInsets.top - safeAreaInsets.bottom),
+      };
+  const appCanvas = getResponsiveAppCanvas(frame.width, frame.height);
+  const chatComposerLayout = getChatComposerLayout(appCanvas.designWidth);
+  const compactHeader = getCompactHeaderMetrics();
   const homeActionTitleFontSize = getHomeActionTitleFontSize(
-    Platform.OS === "web" ? frame.width : viewport.width,
+    appCanvas.designWidth,
   );
   const urgentInventoryLimit = getUrgentInventoryLimit(
-    Platform.OS === "web" ? frame.height : viewport.height,
+    appCanvas.designHeight,
   );
-  const appFrameStyle =
-    Platform.OS === "web"
-      ? [
-          s.app,
-          getPhoneShellStyle(Platform.OS),
-          {
-            flexGrow: 0,
-            flexShrink: 0,
-            flexBasis: "auto" as const,
-            width: frame.width,
-            height: frame.height,
-          },
-        ]
-      : s.app;
+  const toolCardLayout = getToolCardLayout(
+    appCanvas.designWidth,
+    Platform.OS === "web" ? 8 : 0,
+  );
+  const safeAreaStyle = Platform.OS === "web" ? s.webSafeArea : s.nativeSafeArea;
+  const appViewportStyle = [
+    s.appViewport,
+    {
+      width: appCanvas.renderedWidth,
+      height: appCanvas.renderedHeight,
+    },
+  ];
+  const appFrameStyle = [
+    s.app,
+    getPhoneShellStyle(Platform.OS),
+    {
+      flexGrow: 0,
+      flexShrink: 0,
+      flexBasis: "auto" as const,
+      position: "absolute" as const,
+      top: 0,
+      left: 0,
+      width: appCanvas.designWidth,
+      height: appCanvas.designHeight,
+      transformOrigin: "top left" as const,
+      transform: [{ scale: appCanvas.scale }],
+    },
+  ];
+  const stageStyle =
+    Platform.OS === "web" && webFrameState.keyboardOpen
+      ? [s.stage, { justifyContent: "flex-end" as const, overflow: "hidden" as const }]
+      : s.stage;
   const visibleInventory = useMemo(
     () =>
       sortInventory(
@@ -281,6 +348,11 @@ export default function NaengTalk() {
       ),
     [state.inventory, inventorySort],
   );
+  useEffect(() => {
+    return () => {
+      if (chatBlurTimer.current) clearTimeout(chatBlurTimer.current);
+    };
+  }, []);
   useEffect(() => {
     let active = true;
     const initialize = async () => {
@@ -772,8 +844,10 @@ export default function NaengTalk() {
       </View>
     );
   return (
-    <View style={s.stage}>
-      <SafeAreaView style={appFrameStyle}>
+    <View style={stageStyle}>
+      <SafeAreaView style={safeAreaStyle}>
+        <View style={appViewportStyle}>
+          <View style={appFrameStyle}>
         {!loggedIn ? (
           <View
             style={{ flex: 1, padding: 32, justifyContent: "center", gap: 20 }}
@@ -801,28 +875,71 @@ export default function NaengTalk() {
           </View>
         ) : (
           <>
-            <View style={s.header}>
+            <View
+              style={[
+                s.header,
+                { padding: compactHeader.padding, gap: compactHeader.gap },
+              ]}
+            >
               {tab === 0 ? (
-                <View accessibilityElementsHidden style={s.home}>
+                <View
+                  accessibilityElementsHidden
+                  style={[
+                    s.home,
+                    {
+                      width: compactHeader.controlSize,
+                      height: compactHeader.controlSize,
+                      borderRadius: compactHeader.controlRadius,
+                    },
+                  ]}
+                >
                   <Image
                     source={require("../../assets/images/icon.png")}
                     resizeMode="contain"
-                    style={{ width: 38, height: 38 }}
+                    style={{
+                      width: compactHeader.logoSize,
+                      height: compactHeader.logoSize,
+                    }}
                   />
                 </View>
               ) : (
                 <Pressable
                   accessibilityRole="button"
                   accessibilityLabel="홈으로 이동"
-                  style={s.home}
+                  style={[
+                    s.home,
+                    {
+                      width: compactHeader.controlSize,
+                      height: compactHeader.controlSize,
+                      borderRadius: compactHeader.controlRadius,
+                    },
+                  ]}
                   onPress={() => setTab(0)}
                 >
-                  <Home size={23} color={color.ink} />
+                  <Home size={compactHeader.homeIconSize} color={color.ink} />
                 </Pressable>
               )}
               <View style={{ flex: 1 }}>
-                <Text style={s.title}>{titles[tab]}</Text>
-                <Text style={s.muted}>
+                <Text
+                  style={[
+                    s.title,
+                    {
+                      fontSize: compactHeader.titleFontSize,
+                      lineHeight: compactHeader.titleLineHeight,
+                    },
+                  ]}
+                >
+                  {titles[tab]}
+                </Text>
+                <Text
+                  style={[
+                    s.muted,
+                    {
+                      fontSize: compactHeader.subtitleFontSize,
+                      lineHeight: compactHeader.subtitleLineHeight,
+                    },
+                  ]}
+                >
                   {tab === 0
                     ? "오늘도 남김없이, 나만의 한 끼"
                     : tab === 3
@@ -833,6 +950,7 @@ export default function NaengTalk() {
             </View>
             {timer}
             <ScrollView
+              scrollEnabled={tab !== 0}
               showsVerticalScrollIndicator={false}
               contentContainerStyle={s.content}
             >
@@ -841,13 +959,15 @@ export default function NaengTalk() {
                   <View
                     style={[
                       s.card,
+                      s.refrigeratorDoor,
+                      getRefrigeratorDoorSurface("fresh"),
                       {
                         flex: 2,
                         minHeight: getUrgentCardMinHeight(urgentInventoryLimit),
-                        backgroundColor: color.soft,
                       },
                     ]}
                   >
+                    <RefrigeratorHandle tone="fresh" />
                     <Text style={s.title}>먼저 먹으면 좋겠어요</Text>
                     <Text style={s.muted}>
                       권장 소진일이 가까운 재료 · 샘플 추정일
@@ -881,16 +1001,15 @@ export default function NaengTalk() {
                   </View>
                   <View style={[s.row, s.homeActions]}>
                     <Pressable
-                      style={[
+                      style={({ pressed }) => [
                         s.card,
-                        {
-                          flex: 1,
-                          justifyContent: "center",
-                          backgroundColor: color.warm,
-                        },
+                        s.refrigeratorDoor,
+                        getRefrigeratorDoorSurface("warm", pressed),
+                        { flex: 1, justifyContent: "center" },
                       ]}
                       onPress={() => setRegistration(true)}
                     >
+                      <RefrigeratorHandle tone="warm" />
                       <Package color={color.green} />
                       <Text
                         adjustsFontSizeToFit
@@ -903,9 +1022,15 @@ export default function NaengTalk() {
                       <Text style={s.muted}>냉장고 채우기</Text>
                     </Pressable>
                     <Pressable
-                      style={[s.card, { flex: 1, justifyContent: "center" }]}
+                      style={({ pressed }) => [
+                        s.card,
+                        s.refrigeratorDoor,
+                        getRefrigeratorDoorSurface("neutral", pressed),
+                        { flex: 1, justifyContent: "center" },
+                      ]}
                       onPress={() => setTab(1)}
                     >
+                      <RefrigeratorHandle tone="neutral" />
                       <MessageCircle color={color.green} />
                       <Text
                         adjustsFontSizeToFit
@@ -922,7 +1047,7 @@ export default function NaengTalk() {
               )}
               {tab === 1 && (
                 <>
-                  <View style={[s.card, { marginTop: 12 }]}>
+                  <View style={s.card}>
                     <Text style={s.text}>
                       오늘은 어떤 메뉴가 당기세요? 시간, 맛, 원하는 메뉴를 말하면
                       현재 재고와 조리도구에 맞춰 한 가지를 추천해드려요.
@@ -1046,22 +1171,27 @@ export default function NaengTalk() {
                   </Button>
                   <View style={s.grid}>
                     {state.tools.map((tool, i) => (
-                      <View style={[s.card, s.third]} key={`${tool}-${i}`}>
-                        <CookingPot color={color.green} size={19} />
-                        <Text
-                          style={[
-                            s.text,
-                            {
-                              textAlign: "center",
-                              flexShrink: 1,
-                              fontSize: 18,
-                              lineHeight: 21,
-                            },
-                          ]}
-                        >
-                          {tool}
-                        </Text>
+                      <View
+                        style={[
+                          s.card,
+                          s.toolCard,
+                          {
+                            width: toolCardLayout.cardWidth,
+                            aspectRatio: toolCardLayout.aspectRatio,
+                          },
+                        ]}
+                        key={`${tool}-${i}`}
+                      >
+                        <View style={s.toolCardNameArea}>
+                          <Text style={s.toolCardName}>{tool}</Text>
+                        </View>
                         <Pressable
+                          accessibilityRole="button"
+                          accessibilityLabel={`${tool} 조리도구 삭제`}
+                          style={({ pressed }) => [
+                            s.toolDeleteButton,
+                            pressed && s.toolDeleteButtonPressed,
+                          ]}
                           onPress={() =>
                             setState({
                               ...state,
@@ -1069,7 +1199,7 @@ export default function NaengTalk() {
                             })
                           }
                         >
-                          <Text style={[s.muted, { fontSize: 11, lineHeight: 14 }]}>삭제</Text>
+                          <Text style={s.toolDeleteText}>삭제</Text>
                         </Pressable>
                       </View>
                     ))}
@@ -1101,22 +1231,32 @@ export default function NaengTalk() {
                     >
                       알레르기 등록
                     </Button>
+                  </View>
+                  <View style={[s.card, s.allergyListCard]}>
+                    <Text style={s.title}>알레르기 목록</Text>
                     {state.allergens.length ? state.allergens.map((allergen) => (
-                      <View key={allergen} style={s.row}>
-                        <Text style={[s.text, { flex: 1 }]}>{allergen}</Text>
+                      <View key={allergen} style={s.allergyRow}>
+                        <View style={s.allergyLabel}>
+                          <Text style={s.allergyBullet}>•</Text>
+                          <Text style={[s.text, { flex: 1 }]}>{allergen}</Text>
+                        </View>
                         <Pressable
                           accessibilityRole="button"
                           accessibilityLabel={`${allergen} 알레르기 삭제`}
+                          style={({ pressed }) => [
+                            s.allergyDeleteButton,
+                            pressed && s.toolDeleteButtonPressed,
+                          ]}
                           onPress={() => setState({
                             ...state,
                             allergens: state.allergens.filter((item) => item !== allergen),
                           })}
                         >
-                          <Text style={s.muted}>삭제</Text>
+                          <Text style={s.toolDeleteText}>삭제</Text>
                         </Pressable>
                       </View>
                     )) : (
-                      <Text style={s.text}>등록된 알레르기 없음</Text>
+                      <Text style={s.muted}>등록된 알레르기 없음</Text>
                     )}
                   </View>
                   <Button
@@ -1135,18 +1275,49 @@ export default function NaengTalk() {
               )}
             </ScrollView>
             {tab === 1 && (
-              <View style={[s.footer, s.row]}>
+              <View
+                style={[
+                  s.chatComposer,
+                  {
+                    paddingHorizontal: chatComposerLayout.horizontalPadding,
+                    paddingVertical: 12,
+                    gap: chatComposerLayout.gap,
+                  },
+                ]}
+              >
                 <TextInput
-                  style={[s.input, { flex: 1 }]}
+                  style={s.chatComposerInput}
                   placeholder="먹고 싶은 메뉴를 말해보세요"
                   value={input}
                   onChangeText={setInput}
                   editable={!aiBusy}
                   onSubmitEditing={() => void handleSendChat()}
+                  onFocus={() => {
+                    if (chatBlurTimer.current) clearTimeout(chatBlurTimer.current);
+                    setChatInputFocused(true);
+                  }}
+                  onBlur={() => {
+                    if (chatBlurTimer.current) clearTimeout(chatBlurTimer.current);
+                    chatBlurTimer.current = setTimeout(() => setChatInputFocused(false), 250);
+                  }}
                 />
-                <Button loading={aiBusy} onPress={() => void handleSendChat()}>
-                  전송
-                </Button>
+                <Pressable
+                  accessibilityRole="button"
+                  accessibilityState={{ disabled: aiBusy, busy: aiBusy }}
+                  disabled={aiBusy}
+                  onPress={() => void handleSendChat()}
+                  style={[
+                    s.chatSendButton,
+                    { width: chatComposerLayout.sendButtonWidth },
+                    aiBusy && s.buttonDisabled,
+                  ]}
+                >
+                  {aiBusy ? (
+                    <ActivityIndicator size="small" color="white" />
+                  ) : (
+                    <Text style={s.buttonText}>전송</Text>
+                  )}
+                </Pressable>
               </View>
             )}
             <View style={s.nav}>
@@ -1272,9 +1443,26 @@ export default function NaengTalk() {
           onRequestClose={() => setDetail(false)}
         >
           <View style={s.stage}>
-            <SafeAreaView style={appFrameStyle}>
-              <View style={s.header}>
-                <Text style={s.title}>{activeRecipe.title}</Text>
+            <SafeAreaView style={safeAreaStyle}>
+              <View style={appViewportStyle}>
+                <View style={appFrameStyle}>
+              <View
+                style={[
+                  s.header,
+                  { padding: compactHeader.padding, gap: compactHeader.gap },
+                ]}
+              >
+                <Text
+                  style={[
+                    s.title,
+                    {
+                      fontSize: compactHeader.titleFontSize,
+                      lineHeight: compactHeader.titleLineHeight,
+                    },
+                  ]}
+                >
+                  {activeRecipe.title}
+                </Text>
               </View>
               {timer}
               <ScrollView
@@ -1389,6 +1577,8 @@ export default function NaengTalk() {
                   </Pressable>
                 ) : null}
                 <Button onPress={startUsageReview}>요리 완료</Button>
+              </View>
+                </View>
               </View>
             </SafeAreaView>
           </View>
@@ -1775,6 +1965,8 @@ export default function NaengTalk() {
             </View>
           </View>
         </Modal>
+          </View>
+        </View>
       </SafeAreaView>
     </View>
   );

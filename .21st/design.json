@@ -1,0 +1,112 @@
+{
+  "version": 1,
+  "project": {
+    "name": "naengtalk-workspace",
+    "productType": "mobile-first food inventory and recipe assistant",
+    "stack": ["Expo", "React Native", "TypeScript"]
+  },
+  "sources": {
+    "tokens": ["mobile/src/features/theme.ts"],
+    "components": ["mobile/src/features/NaengTalk.tsx"],
+    "assets": ["mobile/assets/icon.png"],
+    "instructions": [
+      "AGENTS.md"
+    ]
+  },
+  "design": {
+    "colorMode": "light",
+    "colors": {
+      "primary": "#2f7740",
+      "background": "#f5f7f2",
+      "surface": "#ffffff",
+      "freshDoor": "#eef5e9",
+      "warmDoor": "#fff5df",
+      "neutralDoor": "#eaf3f7"
+    },
+    "typography": {
+      "family": "SUIT",
+      "heading": "bold",
+      "body": "regular",
+      "primaryCta": "16px/20px semibold",
+      "homeActionTitle": "responsive 16px/17px/19px semibold"
+    },
+    "spacing": {"base": 8},
+    "radius": {"card": 20, "phoneFrame": 38},
+    "shadows": {
+      "refrigeratorDoor": "uniform white inner rim with lower-right exterior depth"
+    },
+    "motion": {"cardPress": "2px right and 3px down, reduced shadow"},
+    "density": "comfortable"
+  },
+  "components": {
+    "installed": [],
+    "preferredPrimitives": ["React Native View", "Pressable", "Text"],
+    "patterns": ["9:20 mobile frame", "responsive 2:1 home layout", "satin refrigerator door cards"]
+  },
+  "constraints": {
+    "must": [
+      "Preserve the home screen's 2:1 content ratio and responsive 4-6 inventory rows",
+      "Keep Korean labels readable with sufficient contrast",
+      "Keep all card content and the bottom navigation inside the 9:20 frame",
+      "Use a full white inner rim and lower-right exterior depth so the three cards read as one refrigerator",
+      "Keep common headers near seventy percent of the previous size and use a 16px first-content gap"
+    ],
+    "avoid": [
+      "Blur or translucent glass that reduces text contrast",
+      "Continuous decorative animation",
+      "New UI dependencies for simple surface styling",
+      "Changing the approved information architecture while applying visual polish"
+    ]
+  },
+  "decisions": [
+    {
+      "date": "2026-09-27",
+      "decision": "Use the Satin Refrigerator Door direction for the three home cards.",
+      "rationale": "It communicates the refrigerator concept with existing layout, color, highlight and depth rather than adding decorative imagery.",
+      "status": "deployed to production on 2026-09-27"
+    },
+    {
+      "date": "2026-09-27",
+      "decision": "Use a generated recessed handle asset and scale the complete 360x800 app canvas uniformly on smaller devices.",
+      "rationale": "The handle clarifies the refrigerator-door metaphor, while whole-canvas scaling preserves header, card, typography and navigation proportions without responsive reflow.",
+      "status": "deployed to production on 2026-09-27"
+    },
+    {
+      "date": "2026-09-27",
+      "decision": "Invert lower-door handles and present cooking tools in a two-column square-card grid with bottom-anchored destructive controls.",
+      "rationale": "The handle orientation matches a downward-opening grip, while larger cards improve tool-name readability and separate destructive actions from content.",
+      "status": "deployed to production on 2026-09-27"
+    },
+    {
+      "date": "2026-09-27",
+      "decision": "Replace partial sheen lines with a full white inner rim, use satin sky blue for the menu card, compact common headers, and center tool names.",
+      "rationale": "The rim makes every panel read as a protruding refrigerator door, the pastel color preserves contrast, and reclaimed header space improves the home action cards without reflowing the layout.",
+      "status": "deployed to production on 2026-09-27"
+    },
+    {
+      "date": "2026-09-27",
+      "decision": "Use 16px semibold labels for shared primary CTA buttons while preserving compact utility-label sizes.",
+      "rationale": "The two-point increase improves tap-target legibility without flattening the hierarchy between primary actions and secondary controls.",
+      "status": "deployed to production on 2026-09-27"
+    },
+    {
+      "date": "2026-09-27",
+      "decision": "Increase both home action-card titles by two pixels and use bundled SUIT Regular, Medium, SemiBold, and Bold throughout the app.",
+      "rationale": "The larger titles strengthen the two primary home actions, while SUIT gives Korean and English copy a friendly, legible hierarchy that remains consistent across web and Android.",
+      "status": "deployed to production on 2026-09-27"
+    },
+    {
+      "date": "2026-09-27",
+      "decision": "Separate allergy registration from the allergy list and use bullet-led rows with compact destructive controls.",
+      "rationale": "Separate cards distinguish creation from management, while the red compact control matches the cooking-tool deletion language without overwhelming short list rows.",
+      "status": "deployed to production on 2026-09-27"
+    }
+  ],
+  "evidence": [
+    {
+      "fact": "project.instructions",
+      "source": "AGENTS.md"
+    }
+  ],
+  "generatedAt": "2026-09-27T00:00:00+09:00"
+}

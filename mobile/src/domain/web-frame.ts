@@ -1,5 +1,9 @@
 const ANDROID_ASPECT_RATIO = 9 / 20;
 const FRAME_MARGIN = 12;
+const KEYBOARD_HEIGHT_DELTA = 120;
+const KEYBOARD_WIDTH_TOLERANCE = 48;
+const APP_DESIGN_WIDTH = 360;
+const APP_DESIGN_HEIGHT = 800;
 
 type PhoneShellStyle = {
   borderWidth: number;
@@ -29,6 +33,61 @@ export function getAndroidWebFrame(
   }
 
   return { width: Math.round(width), height: Math.round(height) };
+}
+
+export function getKeyboardAwareWebFrame(
+  viewport: { width: number; height: number },
+  stableViewport: { width: number; height: number },
+  chatInputFocused: boolean,
+): { frame: { width: number; height: number }; keyboardOpen: boolean } {
+  const keyboardOpen =
+    chatInputFocused &&
+    Math.abs(viewport.width - stableViewport.width) <= KEYBOARD_WIDTH_TOLERANCE &&
+    stableViewport.height - viewport.height >= KEYBOARD_HEIGHT_DELTA;
+  const frameViewport = keyboardOpen ? stableViewport : viewport;
+
+  return {
+    frame: getAndroidWebFrame(frameViewport.width, frameViewport.height),
+    keyboardOpen,
+  };
+}
+
+export function getChatComposerLayout(frameWidth: number): {
+  horizontalPadding: number;
+  gap: number;
+  sendButtonWidth: number;
+} {
+  if (frameWidth < 340) {
+    return { horizontalPadding: 8, gap: 6, sendButtonWidth: 58 };
+  }
+
+  return { horizontalPadding: 12, gap: 8, sendButtonWidth: 64 };
+}
+
+export function getResponsiveAppCanvas(
+  availableWidth: number,
+  availableHeight: number,
+): {
+  designWidth: number;
+  designHeight: number;
+  scale: number;
+  renderedWidth: number;
+  renderedHeight: number;
+} {
+  const safeWidth = Math.max(0, availableWidth);
+  const safeHeight = Math.max(0, availableHeight);
+  const scale = Math.min(
+    safeWidth / APP_DESIGN_WIDTH,
+    safeHeight / APP_DESIGN_HEIGHT,
+  );
+
+  return {
+    designWidth: APP_DESIGN_WIDTH,
+    designHeight: APP_DESIGN_HEIGHT,
+    scale,
+    renderedWidth: Math.round(APP_DESIGN_WIDTH * scale),
+    renderedHeight: Math.round(APP_DESIGN_HEIGHT * scale),
+  };
 }
 
 export function getPhoneShellStyle(

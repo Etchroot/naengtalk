@@ -17,6 +17,7 @@ test('recipe UI hides difficulty and external source cards', () => {
 
 test('AI waits use a visible native activity indicator', () => {
   assert.match(appSource, /ActivityIndicator/);
-  assert.match(appSource, /loading=\{aiBusy\}/);
+  assert.match(appSource, /accessibilityState=\{\{ disabled: aiBusy, busy: aiBusy \}\}/);
+  assert.match(appSource, /aiBusy \? \(\s*<ActivityIndicator size="small" color="white" \/>/);
   assert.match(appSource, /loading=\{purchaseBusy\}/);
 });
