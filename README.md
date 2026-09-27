@@ -150,6 +150,8 @@ node mobile/node_modules/typescript/bin/tsc --noEmit -p mobile/tsconfig.json
 - [서비스 기획서](docs/PRODUCT_PLAN.md)
 - [PRD](docs/PRD.md)
 - [TRD](docs/TRD.md)
+- [전체 사용자 흐름](docs/USER_FLOW.md)
+- [Supabase 점검 기록](docs/SUPABASE_AUDIT.md)
 - [확정된 제품 결정](docs/PRODUCT_DECISIONS.md)
 - [개발 진행도](TODO.md)
 - [사용자 개입 기록](HUMAN-IN-THE-ROOF.md)

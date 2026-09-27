@@ -1,7 +1,7 @@
 # 냉톡 TRD
 
-- 문서 상태: 기술 설계 초안
-- 기준일: 2026-09-02
+- 문서 상태: 구현 기준 및 후속 설계
+- 기준일: 2026-09-27
 - 대상: Android 앱 + 심사용 웹 MVP
 - 개발 전환: 2026-09-08 사용자 승인. 앱 구현을 시작하며 실제 클라우드 연결은 별도 설정한다.
 
@@ -19,11 +19,11 @@
 | --- | --- | --- | --- |
 | 클라이언트 | Expo + React Native + TypeScript + Expo Router | Android·웹 UI와 탐색 | 확정 |
 | 구매내역 OCR | OpenAI `gpt-5.6-luna` 비전 + strict JSON schema | Android·웹 공통 텍스트 추출·상품 구조화 | 확정·구현 |
-| 백엔드 | Supabase Auth, Postgres, Storage, Edge Functions | 인증, 데이터, 이미지, 서버 로직 | 확정 |
-| AI 게이트웨이 | Supabase Edge Function + OpenAI Responses API adapter | 구조화, 대화, 검색 판단, 레시피 변형 | 제공자·구조·모델 조합 확정 |
-| 레시피 검색 | 비공개 Supabase `recipe_catalog` + 공유 AI 레시피 + Terra 생성 fallback | MFDS·MAFRA 구조화 레시피 우선, 공유 AI 레시피 차순위, 낮은 정확도에서 웹 검색 없이 Terra 생성 | SQL·Edge Function 구현, 원격 검증 중 |
-| Android 알림 | Expo 호환 알림 모듈 | 임박 재료 알림 | 구현 방식 미정 |
-| 배포 | EAS Hosting 무료 + 심사 기간 Supabase Pro | Expo 웹 production URL, Auth·Postgres·Storage·Edge Functions 상시 운영 | 확정 |
+| 백엔드 | Supabase Auth, Postgres, Edge Functions | 인증, 데이터, 서버 로직 | 구현·원격 적용 |
+| AI 게이트웨이 | Supabase Edge Function + OpenAI Responses API adapter | 구조화, 대화, 검색 판단, 레시피 변형 | 구현·배포 |
+| 레시피 검색 | 비공개 Supabase `recipe_catalog` + 공유 AI 레시피 + Terra 생성 fallback | MFDS·MAFRA 구조화 레시피 우선, 공유 AI 레시피 차순위, 낮은 정확도에서 웹 검색 없이 Terra 생성 | 구현·원격 검증 |
+| Android 알림 | Expo 호환 알림 모듈 | 임박 재료 알림 | 후속 범위·미구현 |
+| 배포 | EAS Hosting + Supabase | Expo 웹 production URL, Auth·Postgres·Edge Functions 운영 | 웹 구현·Android APK 미빌드 |
 
 Expo Router는 Android와 웹에서 통합된 탐색 구조를 제공하므로 단일 코드베이스 목표에 적합하다. OpenAI 비전은 두 플랫폼에서 같은 모델·프롬프트·구조화 계약을 사용할 수 있다. Supabase Auth는 Postgres RLS와 연동하고 Edge Functions는 OpenAI API 키를 클라이언트 밖에서 관리하는 서버 경계로 사용한다.
 
@@ -33,16 +33,16 @@ AI 실행 구조는 하이브리드로 고정한다. Android와 웹은 구매내
 
 ### 클라이언트
 
-- `auth`: 로그인 화면, Google OAuth, 게스트 익명 인증, 시작 시 세션 복원·갱신, 인증 가드와 로그아웃
+- `auth`: 로그인 화면, 게스트 익명 인증, 시작 시 세션 복원·갱신, 인증 가드와 로그아웃. Google OAuth는 후속 연결
 - `capture`: 심사용 번들 샘플 선택, data URL 변환, OCR 결과 검수·등록
 - `inventory`: 합산 목록, lot 상세, 직접 입력, 수정·취소
-- `cooking-tools`: 자연어 입력, 구조화 검수, 3열 카드 목록과 긴 원문 줄바꿈, 수정·삭제
+- `cooking-tools`: 자연어 입력, 2열 카드 목록과 긴 원문 줄바꿈, 추가·삭제
 - `chat`: 대화 UI, 스트리밍 응답, 도구 실행 확인
 - `recipes`: 추천 상세, 완료 레시피, 차감 미리보기
-- `settings`: 알림, 알레르기 항목, 계정·개인정보 관리
-- `notifications`: 권한, 임박 알림 진입 경로
+- `settings`: 알레르기 항목, 샘플 초기화, 로그아웃. 알림 설정은 후속 범위
+- `notifications`: 권한, 임박 알림 진입 경로. 현재 미구현
 - `home-layout`: 앱 프레임 크기에 따른 임박 재료 4·5·6개 노출, 행동 카드 제목 크기와 카드 최소 높이 계산
-- `platform`: Android Intent 타이머와 웹 대체 동작
+- `platform`: Android·웹 공용 내부 타이머. Android 시스템 타이머 연결은 후속 범위
 
 ### 서버
 
@@ -51,8 +51,8 @@ AI 실행 구조는 하이브리드로 고정한다. Android와 웹은 구매내
 - `recipe-retrieve`: 사용자 요청의 구체성을 판정해 메뉴명 또는 임박 재료로 비공개 `recipe_catalog`의 이름·구조화 재료를 검색하고 후보별 매칭 점수를 반환
 - `recipe-adapt`: 채택된 공공 레시피를 재고·알레르기·도구·시간 기준으로 변형하고, 적합한 후보가 없으면 웹 검색 없이 `gpt-5.6-terra` 생성 경로로 전환
 - `inventory-command`: 검증된 조회·변경·차감 명령 실행
-- `guest-bootstrap`: 최소 10종 재료·조미료·조리도구·새우 알레르기가 포함된 독립 게스트 데이터 생성과 초기화
-- `expiry-notification`: 임박 대상 계산과 알림 작업 생성
+- `guest-bootstrap`: 30종 재료·조미료·16종 조리도구·새우 알레르기가 포함된 독립 게스트 데이터 생성과 초기화
+- `expiry-notification`: 임박 대상 계산과 알림 작업 생성. 후속 범위
 
 ## 4. 데이터 모델 초안
 
@@ -72,8 +72,8 @@ AI 실행 구조는 하이브리드로 고정한다. Android와 웹은 구매내
 | `recipe_sources` | `id`, `recipe_id`, `source_type`, `source_title`, `source_author`, `source_url`, `retrieved_at`, `usage_scope` | 참고 출처와 이용 범위 기록 |
 | `recipe_proposals` | `id`, `conversation_id`, `recipe_id`, `provided_at`, `inventory_snapshot`, `deduction_preview`, `status` | 사용자에게 제공된 제안 |
 | `recipe_ingredients` | `id`, `recipe_id`, `ingredient_id`, `display_quantity`, `display_unit`, `normalized_quantity`, `normalized_unit`, `conversion_source`, `deduction_status` | 레시피 표시 단위와 차감 가능 여부 |
-| `cooking_sessions` | `id`, `owner_id`, `proposal_id`, `inventory_snapshot`, `status`, `started_at`, `expires_at`, `completed_at` | 12시간 복구 가능한 완료 전 조리 상태와 기준 재고 스냅샷 |
-| `cooking_session_usage` | `id`, `session_id`, `ingredient_id`, `base_quantity`, `delta_quantity`, `normalized_unit`, `source_message_id`, `status` | 조리 중 추가·감소·취소된 임시 사용량 원장 |
+| `cooking_sessions` | `id`, `owner_id`, `proposal_id`, `inventory_snapshot`, `status`, `started_at`, `expires_at`, `completed_at` | 완료 트랜잭션·멱등성 기록. 12시간 재진입 복구 UI는 후속 범위 |
+| `cooking_session_usage` | `id`, `session_id`, `ingredient_id`, `base_quantity`, `delta_quantity`, `normalized_unit`, `source_message_id`, `status` | 완료 시 사용량 기록. 조리 중 대화 delta 누적은 후속 범위 |
 | `completed_recipes` | `id`, `owner_id`, `proposal_id`, `completed_at` | 완료 레시피 기록 |
 | `inventory_events` | `id`, `pantry_id`, `type`, `payload`, `idempotency_key`, `created_at` | 변경 이력과 취소 근거 |
 | `notification_preferences` | `owner_id`, `enabled`, `reminder_days`, `delivery_local_time`, `max_daily_notifications`, `timezone` | 기본 D-7·D-3·D-1, 현지 18:00과 하루 최대 1회 알림 설정 |
@@ -218,14 +218,14 @@ OCR 원문과 구조화 검수 초안은 영구 테이블에 저장하지 않고
 12. 검증기가 최종 재료와 `allergens.aliases`를 대조한 뒤 재고 초과 사용, 누락 필수 재료, 보유하지 않은 필수 조리도구, 비정상 단위, 시간 불일치와 고위험 조리 안전 조건을 검사한다. 실패한 결과는 사용자에게 제시하지 않는다.
 13. 레시피 재료·조미료를 계량 단위로 정규화하고, 수치와 환산 근거가 있으면 `deduction_status=ready`, 불확실하거나 근거가 없으면 `review_required`로 분류한다.
 14. 사용자에게 레시피와 예상 차감량을 제시한다. `transformation_summary`와 공공 DB·Terra 생성 경로 구분은 내부 검증·추적에만 사용하고 사용자 화면에는 노출하지 않는다.
-15. 사용자가 조리를 시작하면 `cooking_sessions`와 기본 사용량 원장을 만들고, 조리 중 발화는 `cooking_session_usage`의 delta로만 기록한다. 취소 발화는 기존 delta를 상쇄하는 이벤트로 남긴다.
-16. 완료 시 기본 사용량과 delta를 합산하고, `ready` 항목은 차감 미리보기에 자동 포함하며 `review_required` 항목만 수정·제외하게 한다. 확정 후 idempotency key를 사용해 재고 이벤트와 완료 레시피를 하나의 트랜잭션으로 기록한다.
+15. 현재 구현은 `요리 완료`에서 모든 사용량을 수정할 수 있는 미리보기를 제공한다. 조리 중 발화 delta와 12시간 재진입 복구는 후속 설계다.
+16. 완료 확정 후 idempotency key를 사용해 재고 이벤트와 완료 레시피를 하나의 트랜잭션으로 기록한다.
 
 구현 계약(2026-09-13): `search_recipe_candidates`와 `get_recipe_candidate_detail`은 service role만 호출한다. 검색은 구조화 `ingredients` 필드만 사용하고 각 원천에서 최대 20개 후보만 읽는다. 선택한 한 건만 Terra에 전달하며 응답의 `origin`은 모델이 아닌 서버가 지정한다. `complete_recipe_cooking_shared`는 완료·재고 차감·개인 저장 후 요청된 경우에만 `share_completed_ai_recipe`를 같은 트랜잭션에서 실행한다. 공유 함수는 소유자·완료 기록·AI 생성 origin·콘텐츠 구조를 검사하고 사용자 식별자 및 재고 키를 제거한 독립 스냅샷을 멱등하게 만든다. 완료 전 따봉 상태는 클라이언트의 공유 대기값이며 DB 레시피 저장이 아니다.
 
 개정 설계(2026-09-14, 구현 전): 구매 필요 품목 수를 출처와 메뉴 이름 점수보다 먼저 평가한다. 공공·공유·Terra 각각에서 구매 0개를 먼저 시도하고, 불가능할 때만 구매 1개 이하를 허용한다. Terra의 필수 재료 제외·재고 대체 결과도 서버가 실제 lot·단위·수량과 대조해 구매 수를 검증한다. 자세한 계약은 `docs/superpowers/specs/2026-09-14-zero-purchase-recipes-storage-aware-shelf-life-design.md`를 따른다.
 
-클라이언트 재진입 시 서버는 `status=active`이고 `expires_at`이 지나지 않은 소유자 세션을 반환한다. 사용자가 취소하면 `cancelled`, 시작 후 12시간이 지나면 `expired`로 전환하며 두 경우 모두 `cooking_session_usage`를 재고 이벤트로 승격하지 않는다.
+후속 12시간 복구를 구현할 때 클라이언트 재진입 시 서버는 `status=active`이고 `expires_at`이 지나지 않은 소유자 세션만 반환한다. 취소·만료 세션은 재고 이벤트로 승격하지 않는다.
 
 후속 채팅이 맛·시간·재료 조건을 바꾸면 기존 `recipe_proposal`을 직접 덮어쓰지 않고 이전 제안을 가리키는 새 버전을 만든다. 사용자가 보고 있는 최신 버전만 완료 대상으로 사용한다.
 
@@ -247,7 +247,7 @@ Supabase 익명 사용자는 `authenticated` 역할을 사용하므로 unauthent
 
 1. 앱 시작 시 인증 가드는 저장 세션 확인이 끝날 때까지 로그인과 홈을 모두 렌더링하지 않고 중립적인 시작 상태를 표시한다.
 2. 저장 세션이 없으면 로그인 화면을 열고, 있으면 Supabase 토큰 갱신과 사용자 존재 여부를 확인한다.
-3. 유효한 Google 세션은 사용자 홈으로, 유효한 익명 세션은 해당 게스트 pantry의 홈으로 이동한다. 게스트 bootstrap은 idempotent하므로 재실행 시 시드를 중복 생성하지 않는다.
+3. 현재 유효한 익명 세션은 해당 게스트 pantry의 홈으로 이동한다. Google OAuth 연결 후에는 유효한 Google 세션도 사용자 홈으로 보낸다. 게스트 bootstrap은 idempotent하므로 재실행 시 시드를 중복 생성하지 않는다.
 4. 인증 또는 게스트 bootstrap이 성공하면 초기 설정 상태와 관계없이 바로 홈으로 이동한다. 별도의 온보딩·체크리스트 라우트는 만들지 않는다.
 5. 설정의 로그아웃은 Supabase 로그아웃 뒤 플랫폼 저장소의 세션을 제거하고 인증 내비게이션 스택을 초기화해 뒤로가기로 보호 화면에 돌아가지 못하게 한다.
 6. 토큰 갱신 실패, 삭제된 사용자 또는 7일 비활성 정리가 완료된 게스트는 로컬 세션을 폐기하고 로그인 화면으로 복귀한다.
@@ -294,7 +294,7 @@ Android 세션은 OS가 보호하는 비밀 저장소를 사용하는 Expo 호�
 5. `guest-bootstrap`은 새 게스트 소유 데이터에 `새우` 알레르기 한 항목만 복제한다.
 6. 추천 파이프라인은 AI 사전 필터와 등록 항목 기준의 결정적 최종 검사 중 하나라도 실패하면 해당 제안을 폐기하고 다음 후보를 평가한다.
 
-### 임박 재료 알림
+### 임박 재료 알림 (후속 설계·미구현)
 
 1. 사용자 시간대와 `delivery_local_time`을 기준으로 발송 작업이 `status=available`인 재고 lot 중 D-7·D-3·D-1 경계에 새로 도달한 품목을 조회한다. 기본 시각은 18:00이다.
 2. 이미 차감·폐기된 lot과 같은 milestone로 발송된 lot을 제외한다.
@@ -481,7 +481,7 @@ Android 세션은 OS가 보호하는 비밀 저장소를 사용하는 Expo 호�
 ### E2E·심사 시나리오
 
 - 게스트 진입부터 요리 완료까지 대표 흐름
-- Android 알림과 시스템 타이머
+- Android 알림과 시스템 타이머 (후속 E2E)
 - 웹 새 세션의 샘플 데이터 복제와 격리
 - 배포 URL 헬스체크와 모바일 화면 크기
 
@@ -490,7 +490,7 @@ Android 세션은 OS가 보호하는 비밀 저장소를 사용하는 Expo 호�
 - 개발·심사 환경을 분리한다.
 - Expo web export는 EAS Hosting production URL에 배포한다. 정적 웹 제공과 Supabase 백엔드는 사용자의 로컬 컴퓨터 전원·네트워크 상태에 의존하지 않는다.
 - production 웹 고정 주소는 `https://naengtalk.expo.app`이다. 웹 UI 변경은 새 export를 EAS Hosting production alias에 배포해 반영한다.
-- 별도 도메인은 MVP 의존성에 포함하지 않는다. EAS Hosting의 무료 `*.expo.app` production URL을 안정적인 공개 주소로 사용하고, 같은 배포의 `/install` 라우트가 웹 체험과 최신 EAS 내부 배포 APK로 연결되는 고정 진입점 역할을 한다. QR 코드는 변경 가능한 APK 공유 URL이 아니라 이 고정 라우트를 인코딩한다.
+- 별도 도메인은 MVP 의존성에 포함하지 않는다. EAS Hosting의 `*.expo.app` production URL을 안정적인 공개 주소로 사용한다. Android APK를 만든 뒤 `/install` 라우트와 QR 설치 안내를 추가하는 작업은 남아 있다.
 - Android는 EAS Update의 `production` 채널과 `runtimeVersion.policy: appVersion`을 사용한다. 첫 APK 이후 JavaScript·스타일·번들 자산 변경은 동일 runtime에 OTA로 배포할 수 있지만, 네이티브 의존성·권한·앱 설정·네이티브 아이콘 변경은 새 Android 빌드가 필요하다.
 - 사용자 결정에 따라 웹을 먼저 배포해 실시간 UI를 검수하고, 디자인 확정 후 첫 내부 배포 APK를 빌드한다. EAS Update 설정만 먼저 완료하며 이 단계에서는 APK를 생성하지 않는다.
 - Supabase는 Auth·Postgres·Storage·Edge Functions를 담당하고 OpenAI 요청은 Edge Function의 서버 secret을 통해서만 수행한다.

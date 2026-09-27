@@ -1,56 +1,52 @@
-# Welcome to your Expo app 👋
+# 냉톡 Expo 앱
 
-This is an [Expo](https://expo.dev) project created with [`create-expo-app`](https://www.npmjs.com/package/create-expo-app).
+이 디렉터리는 냉톡의 Android·웹 공용 Expo 클라이언트입니다. 제품 전체 설명과 현재 구현 상태는 상위 [`README.md`](../README.md), 화면·버튼 흐름은 [`docs/USER_FLOW.md`](../docs/USER_FLOW.md)를 참고합니다.
 
-## Get started
+## 환경 준비
 
-1. Install dependencies
+- Node.js
+- pnpm
+- 실제 Supabase 연결 시 `mobile/.env.local`
 
-   ```bash
-   npm install
-   ```
-
-2. Start the app
-
-   ```bash
-   npx expo start
-   ```
-
-In the output, you'll find options to open the app in a
-
-- [development build](https://docs.expo.dev/develop/development-builds/introduction/)
-- [Android emulator](https://docs.expo.dev/workflow/android-studio-emulator/)
-- [iOS simulator](https://docs.expo.dev/workflow/ios-simulator/)
-- [Expo Go](https://expo.dev/go), a limited sandbox for trying out app development with Expo
-
-You can start developing by editing the files inside the **app** directory. This project uses [file-based routing](https://docs.expo.dev/router/introduction).
-
-## Get a fresh project
-
-When you're ready, run:
-
-```bash
-npm run reset-project
+```dotenv
+EXPO_PUBLIC_SUPABASE_URL=https://your-project.supabase.co
+EXPO_PUBLIC_SUPABASE_ANON_KEY=your-publishable-key
 ```
 
-This command will move the starter code to the **app-example** directory and create a blank **app** directory where you can start developing.
+클라이언트에는 publishable/anon key만 둡니다. OpenAI API key와 Supabase service role key는 앱 환경변수에 넣지 않습니다.
 
-### Other setup steps
+## 실행
 
-- To set up ESLint for linting, run `npx expo lint`, or follow our guide on ["Using ESLint and Prettier"](https://docs.expo.dev/guides/using-eslint/)
-- If you'd like to set up unit testing, follow our guide on ["Unit Testing with Jest"](https://docs.expo.dev/develop/unit-testing/)
-- Learn more about the TypeScript setup in this template in our guide on ["Using TypeScript"](https://docs.expo.dev/guides/typescript/)
+```bash
+pnpm install
+pnpm web
+pnpm android
+```
 
-## Learn more
+Supabase 공개 환경값이 없으면 일부 원격 기능 대신 로컬 검증 경로가 사용됩니다. Android 실행에는 에뮬레이터 또는 USB 디버깅이 허용된 기기가 필요합니다.
 
-To learn more about developing your project with Expo, look at the following resources:
+## 검증
 
-- [Expo documentation](https://docs.expo.dev/): Learn fundamentals, or go into advanced topics with our [guides](https://docs.expo.dev/guides).
-- [Learn Expo tutorial](https://docs.expo.dev/tutorial/introduction/): Follow a step-by-step tutorial where you'll create a project that runs on Android, iOS, and the web.
+저장소 루트에서 전체 테스트를 실행하고, 이 디렉터리에서 타입과 Expo 의존성을 확인합니다.
 
-## Join the community
+```bash
+# 저장소 루트
+npm test
 
-Join our community of developers creating universal apps.
+# mobile/
+pnpm exec tsc --noEmit --noUnusedLocals --noUnusedParameters
+pnpm exec expo install --check
+pnpm exec expo export --platform web
+```
 
-- [Expo on GitHub](https://github.com/expo/expo): View our open source platform and contribute.
-- [Discord community](https://chat.expo.dev): Chat with Expo users and ask questions.
+## 주요 구조
+
+```text
+src/app/                Expo Router 진입점
+src/domain/             재고·OCR·레시피 관련 순수 도메인 로직
+src/features/           화면, 모달, 상태 조합
+src/services/           Supabase·세션·플랫폼 adapter
+assets/                 앱 아이콘·글꼴·심사용 샘플
+```
+
+웹 production은 [https://naengtalk.expo.app](https://naengtalk.expo.app)에서 확인할 수 있습니다. Android APK는 별도 EAS 내부 배포 단계가 남아 있습니다.
