@@ -14,11 +14,7 @@ import { SafeAreaView, useSafeAreaInsets } from "react-native-safe-area-context"
 import AsyncStorage from "@react-native-async-storage/async-storage";
 import { Text } from "../components/app-text.tsx";
 import {
-  MessageCircle,
-  Package,
   Timer,
-  ChevronRight,
-  ChevronDown,
   Check,
   ThumbsUp,
 } from "lucide-react-native";
@@ -27,10 +23,8 @@ import { recipeDisplayReason } from "../domain/recipe-provenance.ts";
 import { resetGuestDemoInventory } from "../domain/guest-demo.ts";
 import {
   getCompactHeaderMetrics,
-  getRefrigeratorDoorSurface,
   getHomeActionTitleFontSize,
   getToolCardLayout,
-  getUrgentCardMinHeight,
   getUrgentInventoryLimit,
 } from "../domain/home-layout.ts";
 import { formatCookingStepTitle } from "../domain/recipe-presentation.ts";
@@ -43,10 +37,7 @@ import {
   sortInventory,
   type InventorySortMode,
 } from "../domain/inventory-presentation.ts";
-import {
-  getLocalTodayPresentation,
-  isPastUseBy,
-} from "../domain/date-presentation.ts";
+import { getLocalTodayPresentation } from "../domain/date-presentation.ts";
 import {
   getChatComposerLayout,
   getKeyboardAwareWebFrame,
@@ -101,10 +92,16 @@ import { purchaseDemoAssets } from "./purchase-demo-assets.ts";
 import { color, s } from "./theme";
 import { createInitialState, type AppTab, type LocalState } from "./naengtalk/model.ts";
 import { AppButton as Button } from "./naengtalk/components/app-button.tsx";
-import { RefrigeratorHandle } from "./naengtalk/components/refrigerator-handle.tsx";
 import { AppHeader } from "./naengtalk/components/app-header.tsx";
 import { BottomNavigation } from "./naengtalk/components/bottom-navigation.tsx";
 import { sampleRecipe } from "./naengtalk/sample-recipe.ts";
+import { LoginScreen } from "./naengtalk/screens/login-screen.tsx";
+import { HomeScreen } from "./naengtalk/screens/home-screen.tsx";
+import { ChatScreen } from "./naengtalk/screens/chat-screen.tsx";
+import { InventoryScreen } from "./naengtalk/screens/inventory-screen.tsx";
+import { RecipesScreen } from "./naengtalk/screens/recipes-screen.tsx";
+import { ToolsScreen } from "./naengtalk/screens/tools-screen.tsx";
+import { SettingsScreen } from "./naengtalk/screens/settings-screen.tsx";
 
 const titles = [
   "냉톡",
@@ -686,28 +683,6 @@ export default function NaengTalk() {
     setUsageDraft(createUsageDraft(activeUsage));
     setReview(true);
   };
-  const recipeCard = state.recipe && (
-    <Pressable
-      accessibilityRole="button"
-      accessibilityLabel={`${state.recipe.title} 상세 열기`}
-      onPress={openRecipe}
-      style={s.card}
-    >
-      <View style={s.row}>
-        <View style={{ flex: 1, gap: 8 }}>
-          <Text style={[s.title, { fontSize: 17 }]}>{state.recipe.title}</Text>
-          <Text style={s.muted}>
-            제공일 {state.providedAt.replaceAll("-", ". ")}
-          </Text>
-        </View>
-        <ChevronRight color={color.ink} size={22} />
-      </View>
-      <View style={s.row}>
-        <Text style={s.badge}>{state.recipe.minutes}분</Text>
-        <Text style={s.badge}>{state.recipe.servings}인분</Text>
-      </View>
-    </Pressable>
-  );
   if (!ready)
     return (
       <View style={s.stage}>
@@ -720,30 +695,15 @@ export default function NaengTalk() {
         <View style={appViewportStyle}>
           <View style={appFrameStyle}>
         {!loggedIn ? (
-          <View
-            style={{ flex: 1, padding: 32, justifyContent: "center", gap: 20 }}
-          >
-            <Text style={[s.title, { fontSize: 38 }]}>냉톡</Text>
-            <Text style={s.text}>대화로 관리하는 냉장고와 레시피</Text>
-            <View style={{ height: 28 }} />
-            <Button loading={authBusy} onPress={() => void handleGuestLogin()}>
-              게스트 로그인(심사)
-            </Button>
-            <Button
-              secondary
-              onPress={() =>
-                setError("Google 로그인은 Supabase 연결 후 사용할 수 있습니다.")
-              }
-            >
-              구글 로그인
-            </Button>
-              <Text style={s.muted}>
-                {backendConfig.mode === "local"
-                  ? "개발 검증 모드입니다. 현재 게스트 버튼은 기기 내 샘플을 열며 실제 익명 인증·AI는 아직 연결되지 않았습니다."
-                  : "게스트마다 독립된 원격 재고를 생성하고 로그인 상태를 안전하게 복원합니다."}
-              </Text>
-            <Text style={{ color: "#a94232" }}>{error}</Text>
-          </View>
+          <LoginScreen
+            busy={authBusy}
+            error={error}
+            statusText={backendConfig.mode === "local"
+              ? "개발 검증 모드입니다. 현재 게스트 버튼은 기기 내 샘플을 열며 실제 익명 인증·AI는 아직 연결되지 않았습니다."
+              : "게스트마다 독립된 원격 재고를 생성하고 로그인 상태를 안전하게 복원합니다."}
+            onGuestLogin={() => void handleGuestLogin()}
+            onGoogleLogin={() => setError("Google 로그인은 Supabase 연결 후 사용할 수 있습니다.")}
+          />
         ) : (
           <>
             <AppHeader
@@ -753,393 +713,98 @@ export default function NaengTalk() {
               scale={appCanvas.scale}
             />
             {timer}
-            <ScrollView
-              scrollEnabled={tab !== 0}
-              showsVerticalScrollIndicator={false}
-              contentContainerStyle={s.content}
-            >
+            {tab === 1 ? (
+              <ChatScreen
+                chat={state.chat}
+                recipe={state.recipe}
+                input={input}
+                error={error}
+                aiBusy={aiBusy}
+                composerLayout={chatComposerLayout}
+                onChangeInput={setInput}
+                onSend={() => void handleSendChat()}
+                onOpenRecipe={openRecipe}
+                onInputFocus={() => {
+                  if (chatBlurTimer.current) clearTimeout(chatBlurTimer.current);
+                  setChatInputFocused(true);
+                }}
+                onInputBlur={() => {
+                  if (chatBlurTimer.current) clearTimeout(chatBlurTimer.current);
+                  chatBlurTimer.current = setTimeout(() => setChatInputFocused(false), 250);
+                }}
+              />
+            ) : (
+              <ScrollView
+                scrollEnabled={tab !== 0}
+                showsVerticalScrollIndicator={false}
+                contentContainerStyle={s.content}
+              >
               {tab === 0 && (
-                <View style={s.homeLayout}>
-                  <View
-                    style={[
-                      s.card,
-                      s.refrigeratorDoor,
-                      getRefrigeratorDoorSurface("fresh"),
-                      {
-                        flex: 2,
-                        minHeight: getUrgentCardMinHeight(urgentInventoryLimit),
-                      },
-                    ]}
-                  >
-                    <RefrigeratorHandle tone="fresh" />
-                    <View style={s.urgentHeadingRow}>
-                      <View style={s.urgentHeadingCopy}>
-                        <Text style={s.title}>먼저 먹으면 좋겠어요</Text>
-                        <Text style={s.muted}>권장 소진일이 가까운 재료</Text>
-                      </View>
-                      <View style={s.todayBox}>
-                        <Text style={s.todayLabel}>Today</Text>
-                        <Text style={s.todayDate}>{today.label}</Text>
-                      </View>
-                    </View>
-                    {[...state.inventory]
-                      .filter((x) => x.quantity > 0)
-                      .sort((a, b) => a.useBy.localeCompare(b.useBy))
-                      .slice(0, urgentInventoryLimit)
-                      .map((item) => (
-                        <View
-                          style={[s.row, { paddingVertical: 10 }]}
-                          key={item.id}
-                        >
-                          <Text style={[s.text, { flex: 1 }]}>{item.name}</Text>
-                          <View style={s.row}>
-                            <Text style={s.muted}>
-                              {item.quantity}
-                              {item.unit}
-                            </Text>
-                            <Text
-                              style={[
-                                s.muted,
-                                s.urgentUseBy,
-                                isPastUseBy(item.useBy, today.key) &&
-                                  s.overdueDate,
-                              ]}
-                            >
-                              {item.useBy.slice(5).replace("-", ".")}
-                            </Text>
-                          </View>
-                        </View>
-                      ))}
-                  </View>
-                  <View style={[s.row, s.homeActions]}>
-                    <Pressable
-                      style={({ pressed }) => [
-                        s.card,
-                        s.refrigeratorDoor,
-                        getRefrigeratorDoorSurface("warm", pressed),
-                        { flex: 1, justifyContent: "center" },
-                      ]}
-                      onPress={() => setRegistration(true)}
-                    >
-                      <RefrigeratorHandle tone="warm" />
-                      <Package color={color.green} />
-                      <Text
-                        adjustsFontSizeToFit
-                        minimumFontScale={0.75}
-                        numberOfLines={1}
-                        style={[s.title, { fontSize: homeActionTitleFontSize }]}
-                      >
-                        구매내역 등록
-                      </Text>
-                      <Text style={s.muted}>냉장고 채우기</Text>
-                    </Pressable>
-                    <Pressable
-                      style={({ pressed }) => [
-                        s.card,
-                        s.refrigeratorDoor,
-                        getRefrigeratorDoorSurface("neutral", pressed),
-                        { flex: 1, justifyContent: "center" },
-                      ]}
-                      onPress={() => setTab(1)}
-                    >
-                      <RefrigeratorHandle tone="neutral" />
-                      <MessageCircle color={color.green} />
-                      <Text
-                        adjustsFontSizeToFit
-                        minimumFontScale={0.75}
-                        numberOfLines={1}
-                        style={[s.title, { fontSize: homeActionTitleFontSize }]}
-                      >
-                        오늘 뭐 먹지?
-                      </Text>
-                      <Text style={s.muted}>메뉴 상담하기</Text>
-                    </Pressable>
-                  </View>
-                </View>
-              )}
-              {tab === 1 && (
-                <>
-                  <View style={s.card}>
-                    <Text style={s.text}>
-                      오늘은 어떤 메뉴가 당기세요? 시간, 맛, 원하는 메뉴를 말하면
-                      현재 재고와 조리도구에 맞춰 한 가지를 추천해드려요.
-                    </Text>
-                  </View>
-                  {state.chat.map((item, index) => (
-                    <View
-                      key={`${item.role}-${index}`}
-                      style={[
-                        s.card,
-                        item.role === "user"
-                          ? { backgroundColor: color.green, marginLeft: 42 }
-                          : { marginRight: 24 },
-                      ]}
-                    >
-                      <Text style={[s.text, item.role === "user" && { color: "white" }]}>
-                        {breakSentences(item.content)}
-                      </Text>
-                    </View>
-                  ))}
-                  {aiBusy ? (
-                    <View style={[s.card, { marginRight: 24 }]}>
-                      <View style={s.loadingRow}>
-                        <Text accessibilityLiveRegion="polite" style={[s.muted, { flex: 1 }]}>
-                          냉장고와 레시피를 확인하고 있어요…
-                        </Text>
-                        <ActivityIndicator size="small" color={color.green} />
-                      </View>
-                    </View>
-                  ) : null}
-                  {state.recipe ? (
-                    <View style={[s.card, { backgroundColor: color.soft }]}>
-                      <Text style={s.title}>{state.recipe.title}</Text>
-                      <Text style={s.text}>{breakSentences(recipeDisplayReason(state.recipe))}</Text>
-                      <Button secondary onPress={openRecipe}>
-                        레시피 전체 보기
-                      </Button>
-                    </View>
-                  ) : null}
-                  {error ? (
-                    <Text accessibilityRole="alert" style={{ color: "#a94232" }}>
-                      {error}
-                    </Text>
-                  ) : null}
-                </>
+                <HomeScreen
+                  inventory={state.inventory}
+                  today={today}
+                  urgentInventoryLimit={urgentInventoryLimit}
+                  homeActionTitleFontSize={homeActionTitleFontSize}
+                  onOpenRegistration={() => setRegistration(true)}
+                  onOpenChat={() => setTab(1)}
+                />
               )}
               {tab === 2 && (
-                <>
-                  <Button onPress={() => setRegistration(true)}>
-                    재고 등록
-                  </Button>
-                  <View style={[s.row, { justifyContent: "space-between" }]}>
-                    <Text style={s.muted}>{visibleInventory.length}종 보관 중</Text>
-                    <Pressable
-                      accessibilityRole="button"
-                      accessibilityLabel="재고 정렬 방식 선택"
-                      style={s.sortButton}
-                      onPress={() => setSortMenu(true)}
-                    >
-                      <Text style={s.muted}>
-                        {inventorySort === "expiry"
-                          ? "남은 소비기한 순"
-                          : "이름순"}
-                      </Text>
-                      <ChevronDown size={16} color={color.muted} />
-                    </Pressable>
-                  </View>
-                  {visibleInventory.map((item) => (
-                    <View key={item.id} style={s.card}>
-                      <View style={s.row}>
-                        <Text style={[s.title, { fontSize: 17, flex: 1 }]}>
-                          {item.name}{item.storageMethod === "frozen" ? " · 냉동" : item.storageMethod === "refrigerated" ? " · 냉장" : item.storageMethod === "room_temperature" ? " · 실온" : ""}
-                        </Text>
-                        <Text style={s.text}>
-                          {item.quantity}
-                          {item.unit}
-                        </Text>
-                      </View>
-                      <View style={s.row}>
-                        <Text style={s.muted}>권장 소진일(샘플 추정)</Text>
-                        <Text
-                          style={[
-                            s.muted,
-                            isPastUseBy(item.useBy, today.key) &&
-                              s.overdueDate,
-                          ]}
-                        >
-                          {item.useBy}
-                        </Text>
-                      </View>
-                    </View>
-                  ))}
-                </>
+                <InventoryScreen
+                  inventory={visibleInventory}
+                  sortMode={inventorySort}
+                  todayKey={today.key}
+                  onOpenSort={() => setSortMenu(true)}
+                  onOpenRegistration={() => setRegistration(true)}
+                />
               )}
-              {tab === 3 &&
-                (state.saved ? (
-                  recipeCard
-                ) : (
-                  <View style={s.card}>
-                    <Text style={s.text}>아직 완료한 요리가 없어요.</Text>
-                    <Text style={s.muted}>
-                      채팅에서 레시피를 열고 요리 완료하면 여기에 저장돼요.
-                    </Text>
-                    <Button secondary onPress={() => setTab(1)}>
-                      채팅으로 이동
-                    </Button>
-                  </View>
-                ))}
+              {tab === 3 && (
+                <RecipesScreen
+                  savedRecipe={state.saved ? state.recipe : null}
+                  providedAt={state.providedAt}
+                  onOpenRecipe={openRecipe}
+                  onOpenChat={() => setTab(1)}
+                />
+              )}
               {tab === 4 && (
-                <>
-                  <TextInput
-                    style={s.input}
-                    accessibilityLabel="조리도구"
-                    placeholder="예: 2.5L 냄비"
-                    value={input}
-                    onChangeText={setInput}
-                  />
-                  <Button
-                    onPress={() => {
-                      if (input.trim()) {
-                        setState({
-                          ...state,
-                          tools: [...state.tools, input.trim()],
-                        });
-                        setInput("");
-                      }
-                    }}
-                  >
-                    조리도구 입력
-                  </Button>
-                  <View style={s.grid}>
-                    {state.tools.map((tool, i) => (
-                      <View
-                        style={[
-                          s.card,
-                          s.toolCard,
-                          {
-                            width: toolCardLayout.cardWidth,
-                            aspectRatio: toolCardLayout.aspectRatio,
-                          },
-                        ]}
-                        key={`${tool}-${i}`}
-                      >
-                        <View style={s.toolCardNameArea}>
-                          <Text style={s.toolCardName}>{tool}</Text>
-                        </View>
-                        <Pressable
-                          accessibilityRole="button"
-                          accessibilityLabel={`${tool} 조리도구 삭제`}
-                          style={({ pressed }) => [
-                            s.toolDeleteButton,
-                            pressed && s.toolDeleteButtonPressed,
-                          ]}
-                          onPress={() =>
-                            setState({
-                              ...state,
-                              tools: state.tools.filter((_, j) => i !== j),
-                            })
-                          }
-                        >
-                          <Text style={s.toolDeleteText}>삭제</Text>
-                        </Pressable>
-                      </View>
-                    ))}
-                  </View>
-                </>
+                <ToolsScreen
+                  tools={state.tools}
+                  input={input}
+                  cardWidth={toolCardLayout.cardWidth}
+                  cardAspectRatio={toolCardLayout.aspectRatio}
+                  onChangeInput={setInput}
+                  onAddTool={() => {
+                    if (!input.trim()) return;
+                    setState({ ...state, tools: [...state.tools, input.trim()] });
+                    setInput("");
+                  }}
+                  onRemoveTool={(index) => setState({
+                    ...state,
+                    tools: state.tools.filter((_, itemIndex) => index !== itemIndex),
+                  })}
+                />
               )}
               {tab === 5 && (
-                <>
-                  <View style={s.card}>
-                    <Text style={s.title}>알레르기 항목</Text>
-                    <Text style={s.muted}>
-                      등록된 항목은 레시피를 만들기 전에 AI와 안전 검사에서 확인합니다.
-                    </Text>
-                    <TextInput
-                      style={s.input}
-                      accessibilityLabel="알레르기 항목"
-                      placeholder="예: 새우"
-                      value={input}
-                      onChangeText={setInput}
-                    />
-                    <Button
-                      onPress={() => {
-                        const allergen = input.trim();
-                        if (allergen && !state.allergens.includes(allergen)) {
-                          setState({ ...state, allergens: [...state.allergens, allergen] });
-                          setInput("");
-                        }
-                      }}
-                    >
-                      알레르기 등록
-                    </Button>
-                  </View>
-                  <View style={[s.card, s.allergyListCard]}>
-                    <Text style={s.title}>알레르기 목록</Text>
-                    {state.allergens.length ? state.allergens.map((allergen) => (
-                      <View key={allergen} style={s.allergyRow}>
-                        <View style={s.allergyLabel}>
-                          <Text style={s.allergyBullet}>•</Text>
-                          <Text style={[s.text, { flex: 1 }]}>{allergen}</Text>
-                        </View>
-                        <Pressable
-                          accessibilityRole="button"
-                          accessibilityLabel={`${allergen} 알레르기 삭제`}
-                          style={({ pressed }) => [
-                            s.allergyDeleteButton,
-                            pressed && s.toolDeleteButtonPressed,
-                          ]}
-                          onPress={() => setState({
-                            ...state,
-                            allergens: state.allergens.filter((item) => item !== allergen),
-                          })}
-                        >
-                          <Text style={s.toolDeleteText}>삭제</Text>
-                        </Pressable>
-                      </View>
-                    )) : (
-                      <Text style={s.muted}>등록된 알레르기 없음</Text>
-                    )}
-                  </View>
-                  <Button
-                    secondary
-                    onPress={() => void handleResetDemo()}
-                  >
-                    {authBusy ? "초기화 중…" : "샘플 데이터 초기화"}
-                  </Button>
-                  <Button
-                    secondary
-                    onPress={() => void handleLogout()}
-                  >
-                    {authBusy ? "로그아웃 중…" : "로그아웃"}
-                  </Button>
-                </>
-              )}
-            </ScrollView>
-            {tab === 1 && (
-              <View
-                style={[
-                  s.chatComposer,
-                  {
-                    paddingHorizontal: chatComposerLayout.horizontalPadding,
-                    paddingVertical: 12,
-                    gap: chatComposerLayout.gap,
-                  },
-                ]}
-              >
-                <TextInput
-                  style={s.chatComposerInput}
-                  placeholder="먹고 싶은 메뉴를 말해보세요"
-                  value={input}
-                  onChangeText={setInput}
-                  editable={!aiBusy}
-                  onSubmitEditing={() => void handleSendChat()}
-                  onFocus={() => {
-                    if (chatBlurTimer.current) clearTimeout(chatBlurTimer.current);
-                    setChatInputFocused(true);
+                <SettingsScreen
+                  allergens={state.allergens}
+                  allergenInput={input}
+                  busy={authBusy}
+                  onChangeAllergenInput={setInput}
+                  onAddAllergen={() => {
+                    const allergen = input.trim();
+                    if (!allergen || state.allergens.includes(allergen)) return;
+                    setState({ ...state, allergens: [...state.allergens, allergen] });
+                    setInput("");
                   }}
-                  onBlur={() => {
-                    if (chatBlurTimer.current) clearTimeout(chatBlurTimer.current);
-                    chatBlurTimer.current = setTimeout(() => setChatInputFocused(false), 250);
-                  }}
+                  onRemoveAllergen={(allergen) => setState({
+                    ...state,
+                    allergens: state.allergens.filter((item) => item !== allergen),
+                  })}
+                  onResetDemo={() => void handleResetDemo()}
+                  onLogout={() => void handleLogout()}
                 />
-                <Pressable
-                  accessibilityRole="button"
-                  accessibilityState={{ disabled: aiBusy, busy: aiBusy }}
-                  disabled={aiBusy}
-                  onPress={() => void handleSendChat()}
-                  style={[
-                    s.chatSendButton,
-                    { width: chatComposerLayout.sendButtonWidth },
-                    aiBusy && s.buttonDisabled,
-                  ]}
-                >
-                  {aiBusy ? (
-                    <ActivityIndicator size="small" color="white" />
-                  ) : (
-                    <Text style={s.buttonText}>전송</Text>
-                  )}
-                </Pressable>
-              </View>
+              )}
+              </ScrollView>
             )}
             <BottomNavigation
               tab={tab}

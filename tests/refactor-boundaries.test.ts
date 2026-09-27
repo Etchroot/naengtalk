@@ -11,6 +11,15 @@ const buttonPath = new URL('../mobile/src/features/naengtalk/components/app-butt
 const headerPath = new URL('../mobile/src/features/naengtalk/components/app-header.tsx', import.meta.url);
 const navigationPath = new URL('../mobile/src/features/naengtalk/components/bottom-navigation.tsx', import.meta.url);
 const containerPath = new URL('../mobile/src/features/NaengTalk.tsx', import.meta.url);
+const screenPaths = [
+  'login-screen.tsx',
+  'home-screen.tsx',
+  'chat-screen.tsx',
+  'inventory-screen.tsx',
+  'recipes-screen.tsx',
+  'tools-screen.tsx',
+  'settings-screen.tsx',
+].map((name) => new URL(`../mobile/src/features/naengtalk/screens/${name}`, import.meta.url));
 
 test('android foundations remain while expo demo files are absent', () => {
   const pkg = JSON.parse(readFileSync(packagePath, 'utf8'));
@@ -34,4 +43,17 @@ test('shared naengtalk modules own model and navigation chrome', () => {
   assert.equal(existsSync(navigationPath), true);
   assert.match(containerSource, /createInitialState/);
   assert.match(containerSource, /<BottomNavigation/);
+});
+
+test('screens are presentational and never import services', () => {
+  const containerSource = readFileSync(containerPath, 'utf8');
+  for (const path of screenPaths) {
+    assert.equal(existsSync(path), true);
+    const source = readFileSync(path, 'utf8');
+    assert.doesNotMatch(source, /from ["'].*\/services\//);
+    assert.doesNotMatch(source, /supabase/i);
+  }
+  assert.match(containerSource, /<HomeScreen/);
+  assert.match(containerSource, /<ChatScreen/);
+  assert.match(containerSource, /<SettingsScreen/);
 });
