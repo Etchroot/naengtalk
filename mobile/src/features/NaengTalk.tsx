@@ -14,31 +14,20 @@ import { SafeAreaView, useSafeAreaInsets } from "react-native-safe-area-context"
 import AsyncStorage from "@react-native-async-storage/async-storage";
 import { Text } from "../components/app-text.tsx";
 import {
-  Home,
   MessageCircle,
   Package,
-  NotebookText,
-  CookingPot,
-  Settings,
   Timer,
   ChevronRight,
   ChevronDown,
   Check,
   ThumbsUp,
 } from "lucide-react-native";
-import {
-  completeCooking,
-  remainingSeconds,
-  type CookingState,
-} from "../domain/cooking.ts";
-import { createGuestInventory, createGuestTools } from "../domain/seed.ts";
+import { completeCooking, remainingSeconds } from "../domain/cooking.ts";
 import { recipeDisplayReason } from "../domain/recipe-provenance.ts";
 import { resetGuestDemoInventory } from "../domain/guest-demo.ts";
 import {
   getCompactHeaderMetrics,
   getRefrigeratorDoorSurface,
-  getRefrigeratorHandlePlacement,
-  getRefrigeratorHandleScaleY,
   getHomeActionTitleFontSize,
   getToolCardLayout,
   getUrgentCardMinHeight,
@@ -49,7 +38,6 @@ import {
   recipeContextMessage,
   recipeUsage,
   type ChatMessage,
-  type MenuRecipe,
 } from "../domain/menu-chat.ts";
 import {
   sortInventory,
@@ -111,8 +99,13 @@ import {
 import { registerRemoteInventory } from "../services/register-inventory.ts";
 import { purchaseDemoAssets } from "./purchase-demo-assets.ts";
 import { color, s } from "./theme";
+import { createInitialState, type AppTab, type LocalState } from "./naengtalk/model.ts";
+import { AppButton as Button } from "./naengtalk/components/app-button.tsx";
+import { RefrigeratorHandle } from "./naengtalk/components/refrigerator-handle.tsx";
+import { AppHeader } from "./naengtalk/components/app-header.tsx";
+import { BottomNavigation } from "./naengtalk/components/bottom-navigation.tsx";
+import { sampleRecipe } from "./naengtalk/sample-recipe.ts";
 
-const tabs = ["홈", "채팅", "재고", "레시피", "조리도구", "설정"];
 const titles = [
   "냉톡",
   "메뉴 상담",
@@ -121,140 +114,14 @@ const titles = [
   "조리도구",
   "설정",
 ];
-const icons = [
-  Home,
-  MessageCircle,
-  Package,
-  NotebookText,
-  CookingPot,
-  Settings,
-];
-const sampleSteps = [
-  {
-    text: "김치 150g과 두부 100g을 먹기 좋은 크기로 잘라주세요. 사용 전 포장 표시와 보관 상태를 확인해주세요.",
-    minutes: 0,
-  },
-  {
-    text: "냄비에 김치와 물 350ml를 넣고 끓입니다. 끓기 시작하면 중약불에서 김치가 부드러워질 때까지 10분간 끓여주세요.",
-    minutes: 10,
-  },
-  {
-    text: "두부를 넣고 5분 더 끓여주세요. 간장 5ml를 넣고 맛을 확인합니다. 김치의 짠 정도에 따라 물을 조금 더 넣어주세요.",
-    minutes: 5,
-  },
-  {
-    text: "불을 끄고 그릇에 담아주세요. 실제로 사용한 양을 확인한 뒤 아래 요리 완료 버튼을 눌러 재고에 반영합니다.",
-    minutes: 0,
-  },
-];
-const sampleRecipe: MenuRecipe = {
-  origin: "DEMO",
-  title: "김치 두부찌개",
-  reason: "두부를 먼저 사용하면서 추가 구매 없이 만들 수 있어요.",
-  servings: 1,
-  minutes: 20,
-  difficulty: "쉬움",
-  ingredients: [
-    { ingredientKey: "kimchi", name: "김치", quantity: 150, unit: "g", inInventory: true, requiredPurchase: false },
-    { ingredientKey: "tofu", name: "두부", quantity: 100, unit: "g", inInventory: true, requiredPurchase: false },
-    { ingredientKey: "soy", name: "간장", quantity: 5, unit: "ml", inInventory: true, requiredPurchase: false },
-    { ingredientKey: null, name: "물", quantity: 350, unit: "ml", inInventory: false, requiredPurchase: false },
-  ],
-  steps: sampleSteps,
-  sources: [],
-};
-type LocalState = CookingState & {
-  providedAt: string;
-  saved: boolean;
-  savedRecipeId: string | null;
-  sharePending: boolean;
-  shared: boolean;
-  tools: string[];
-  allergens: string[];
-  timer: { label: string; endsAt: number } | null;
-  chat: ChatMessage[];
-  recipe: MenuRecipe | null;
-};
-function fresh(): LocalState {
-  const date = new Date().toISOString().slice(0, 10);
-  return {
-    inventory: createGuestInventory(date),
-    completedSessionIds: [],
-    providedAt: date,
-    saved: false,
-    ...newProposalSharingState(),
-    tools: createGuestTools(),
-    allergens: ["새우"],
-    timer: null,
-    chat: [],
-    recipe: backendConfig.mode === "local" ? sampleRecipe : null,
-  };
-}
-function Button({
-  children,
-  onPress,
-  secondary = false,
-  loading = false,
-  disabled = false,
-}: {
-  children: string;
-  onPress: () => void;
-  secondary?: boolean;
-  loading?: boolean;
-  disabled?: boolean;
-}) {
-  const inactive = disabled || loading;
-  return (
-    <Pressable
-      accessibilityRole="button"
-      accessibilityState={{ disabled: inactive, busy: loading }}
-      disabled={inactive}
-      onPress={onPress}
-      style={[s.button, secondary && s.secondary, inactive && s.buttonDisabled]}
-    >
-      <View style={s.buttonContent}>
-        <Text style={[s.buttonText, secondary && { color: color.green }]}>
-          {children}
-        </Text>
-        {loading ? (
-          <ActivityIndicator
-            size="small"
-            color={secondary ? color.green : "white"}
-          />
-        ) : null}
-      </View>
-    </Pressable>
-  );
-}
-
-function RefrigeratorHandle({
-  tone,
-}: {
-  tone: "fresh" | "warm" | "neutral";
-}) {
-  const placement = getRefrigeratorHandlePlacement(tone);
-  return (
-    <Image
-      source={require("../../assets/images/refrigerator-handle.png")}
-      resizeMode="stretch"
-      style={[
-        s.refrigeratorHandle,
-        placement === "bottom"
-          ? s.refrigeratorHandleBottom
-          : s.refrigeratorHandleTop,
-        { transform: [{ scaleY: getRefrigeratorHandleScaleY(tone) }] },
-      ]}
-    />
-  );
-}
 export default function NaengTalk() {
   const viewport = useWindowDimensions();
   const safeAreaInsets = useSafeAreaInsets();
-  const [state, setState] = useState<LocalState>(fresh);
+  const [state, setState] = useState<LocalState>(createInitialState);
   const [ready, setReady] = useState(false);
   const [loggedIn, setLoggedIn] = useState(false);
   const [authBusy, setAuthBusy] = useState(false);
-  const [tab, setTab] = useState(0);
+  const [tab, setTab] = useState<AppTab>(0);
   const [detail, setDetail] = useState(false);
   const [review, setReview] = useState(false);
   const [session, setSession] = useState("");
@@ -363,7 +230,7 @@ export default function NaengTalk() {
       try {
         const raw = await AsyncStorage.getItem("naengtalk-local-validation-v1");
         const stored = raw ? JSON.parse(raw) : null;
-        if (active && stored?.state) setState({ ...fresh(), ...stored.state });
+        if (active && stored?.state) setState({ ...createInitialState(), ...stored.state });
 
         if (backendConfig.mode === "supabase") {
           const hasSession = await restoreRemoteSession();
@@ -428,7 +295,7 @@ export default function NaengTalk() {
     setError("");
     try {
       await signOutSession();
-      setState(fresh());
+      setState(createInitialState());
       setShareConsentVisible(false);
       setLoggedIn(false);
       setTab(0);
@@ -449,7 +316,7 @@ export default function NaengTalk() {
         resetRemote: resetRemoteGuestDemo,
         loadRemote: loadRemoteInventory,
       });
-      setState({ ...fresh(), inventory });
+      setState({ ...createInitialState(), inventory });
       setShareConsentVisible(false);
       setTab(0);
     } catch {
@@ -879,82 +746,12 @@ export default function NaengTalk() {
           </View>
         ) : (
           <>
-            <View
-              style={[
-                s.header,
-                { padding: compactHeader.padding, gap: compactHeader.gap },
-              ]}
-            >
-              {tab === 0 ? (
-                <View
-                  accessibilityElementsHidden
-                  style={[
-                    s.home,
-                    {
-                      width: compactHeader.controlSize,
-                      height: compactHeader.controlSize,
-                      borderRadius: compactHeader.controlRadius,
-                    },
-                  ]}
-                >
-                  <Image
-                    source={require("../../assets/images/icon.png")}
-                    resizeMode="contain"
-                    style={{
-                      width: compactHeader.logoSize,
-                      height: compactHeader.logoSize,
-                    }}
-                  />
-                </View>
-              ) : (
-                <Pressable
-                  accessibilityRole="button"
-                  accessibilityLabel="홈으로 이동"
-                  style={[
-                    s.home,
-                    {
-                      width: compactHeader.controlSize,
-                      height: compactHeader.controlSize,
-                      borderRadius: compactHeader.controlRadius,
-                    },
-                  ]}
-                  onPress={() => setTab(0)}
-                >
-                  <Home size={compactHeader.homeIconSize} color={color.ink} />
-                </Pressable>
-              )}
-              <View style={s.headerCopy}>
-                <Text
-                  style={[
-                    s.title,
-                    s.headerTitle,
-                    {
-                      fontSize: compactHeader.titleFontSize,
-                      lineHeight: compactHeader.titleLineHeight,
-                    },
-                  ]}
-                >
-                  {titles[tab]}
-                </Text>
-                {tab === 0 ? (
-                  <Text
-                    adjustsFontSizeToFit
-                    minimumFontScale={0.82}
-                    numberOfLines={1}
-                    style={[
-                      s.muted,
-                      s.headerTagline,
-                      {
-                        fontSize: compactHeader.taglineFontSize,
-                        lineHeight: compactHeader.taglineLineHeight,
-                      },
-                    ]}
-                  >
-                    오늘도 남김없이, 나만의 한 끼
-                  </Text>
-                ) : null}
-              </View>
-            </View>
+            <AppHeader
+              tab={tab}
+              title={titles[tab]}
+              onHome={() => setTab(0)}
+              scale={appCanvas.scale}
+            />
             {timer}
             <ScrollView
               scrollEnabled={tab !== 0}
@@ -1344,36 +1141,14 @@ export default function NaengTalk() {
                 </Pressable>
               </View>
             )}
-            <View style={s.nav}>
-              {tabs.map((name, i) => {
-                const Icon = icons[i];
-                return (
-                  <Pressable
-                    key={name}
-                    accessibilityRole="tab"
-                    accessibilityState={{ selected: tab === i }}
-                    style={s.tab}
-                    onPress={() => {
-                      setTab(i);
-                      setInput("");
-                    }}
-                  >
-                    <Icon
-                      size={22}
-                      color={tab === i ? color.green : color.muted}
-                    />
-                    <Text
-                      style={{
-                        fontSize: 11,
-                        color: tab === i ? color.green : color.muted,
-                      }}
-                    >
-                      {name}
-                    </Text>
-                  </Pressable>
-                );
-              })}
-            </View>
+            <BottomNavigation
+              tab={tab}
+              scale={appCanvas.scale}
+              onSelect={(nextTab) => {
+                setTab(nextTab);
+                setInput("");
+              }}
+            />
           </>
         )}
         <Modal
