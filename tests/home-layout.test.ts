@@ -72,7 +72,7 @@ test('refrigerator door surfaces use a full white inner rim and pastel Bespoke c
   assert.deepEqual(pressed.transform, [{ translateX: 2 }, { translateY: 3 }]);
 });
 
-test('common screen header keeps a compact seventy-percent visual scale', () => {
+test('common screen header gives the title and inline home tagline readable emphasis', () => {
   assert.deepEqual(getCompactHeaderMetrics(), {
     padding: 14,
     gap: 8,
@@ -80,10 +80,10 @@ test('common screen header keeps a compact seventy-percent visual scale', () => 
     controlRadius: 10,
     logoSize: 28,
     homeIconSize: 17,
-    titleFontSize: 16,
-    titleLineHeight: 20,
-    subtitleFontSize: 10,
-    subtitleLineHeight: 14,
+    titleFontSize: 21,
+    titleLineHeight: 26,
+    taglineFontSize: 13,
+    taglineLineHeight: 18,
   });
 });
 

@@ -56,6 +56,10 @@ import {
   type InventorySortMode,
 } from "../domain/inventory-presentation.ts";
 import {
+  getLocalTodayPresentation,
+  isPastUseBy,
+} from "../domain/date-presentation.ts";
+import {
   getChatComposerLayout,
   getAndroidWebFrame,
   getKeyboardAwareWebFrame,
@@ -302,6 +306,7 @@ export default function NaengTalk() {
   const appCanvas = getResponsiveAppCanvas(frame.width, frame.height);
   const chatComposerLayout = getChatComposerLayout(appCanvas.designWidth);
   const compactHeader = getCompactHeaderMetrics();
+  const today = getLocalTodayPresentation();
   const homeActionTitleFontSize = getHomeActionTitleFontSize(
     appCanvas.designWidth,
   );
@@ -919,10 +924,11 @@ export default function NaengTalk() {
                   <Home size={compactHeader.homeIconSize} color={color.ink} />
                 </Pressable>
               )}
-              <View style={{ flex: 1 }}>
+              <View style={s.headerCopy}>
                 <Text
                   style={[
                     s.title,
+                    s.headerTitle,
                     {
                       fontSize: compactHeader.titleFontSize,
                       lineHeight: compactHeader.titleLineHeight,
@@ -931,21 +937,23 @@ export default function NaengTalk() {
                 >
                   {titles[tab]}
                 </Text>
-                <Text
-                  style={[
-                    s.muted,
-                    {
-                      fontSize: compactHeader.subtitleFontSize,
-                      lineHeight: compactHeader.subtitleLineHeight,
-                    },
-                  ]}
-                >
-                  {tab === 0
-                    ? "오늘도 남김없이, 나만의 한 끼"
-                    : tab === 3
-                      ? "완료한 레시피만 모아봐요"
-                      : "내 냉장고에 맞춘 생활"}
-                </Text>
+                {tab === 0 ? (
+                  <Text
+                    adjustsFontSizeToFit
+                    minimumFontScale={0.82}
+                    numberOfLines={1}
+                    style={[
+                      s.muted,
+                      s.headerTagline,
+                      {
+                        fontSize: compactHeader.taglineFontSize,
+                        lineHeight: compactHeader.taglineLineHeight,
+                      },
+                    ]}
+                  >
+                    오늘도 남김없이, 나만의 한 끼
+                  </Text>
+                ) : null}
               </View>
             </View>
             {timer}
@@ -968,10 +976,16 @@ export default function NaengTalk() {
                     ]}
                   >
                     <RefrigeratorHandle tone="fresh" />
-                    <Text style={s.title}>먼저 먹으면 좋겠어요</Text>
-                    <Text style={s.muted}>
-                      권장 소진일이 가까운 재료 · 샘플 추정일
-                    </Text>
+                    <View style={s.urgentHeadingRow}>
+                      <View style={s.urgentHeadingCopy}>
+                        <Text style={s.title}>먼저 먹으면 좋겠어요</Text>
+                        <Text style={s.muted}>권장 소진일이 가까운 재료</Text>
+                      </View>
+                      <View style={s.todayBox}>
+                        <Text style={s.todayLabel}>Today</Text>
+                        <Text style={s.todayDate}>{today.label}</Text>
+                      </View>
+                    </View>
                     {[...state.inventory]
                       .filter((x) => x.quantity > 0)
                       .sort((a, b) => a.useBy.localeCompare(b.useBy))
@@ -990,7 +1004,9 @@ export default function NaengTalk() {
                             <Text
                               style={[
                                 s.muted,
-                                { fontWeight: "700", color: color.ink },
+                                s.urgentUseBy,
+                                isPastUseBy(item.useBy, today.key) &&
+                                  s.overdueDate,
                               ]}
                             >
                               {item.useBy.slice(5).replace("-", ".")}
@@ -1126,9 +1142,18 @@ export default function NaengTalk() {
                           {item.unit}
                         </Text>
                       </View>
-                      <Text style={s.muted}>
-                        권장 소진일(샘플 추정) {item.useBy}
-                      </Text>
+                      <View style={s.row}>
+                        <Text style={s.muted}>권장 소진일(샘플 추정)</Text>
+                        <Text
+                          style={[
+                            s.muted,
+                            isPastUseBy(item.useBy, today.key) &&
+                              s.overdueDate,
+                          ]}
+                        >
+                          {item.useBy}
+                        </Text>
+                      </View>
                     </View>
                   ))}
                 </>

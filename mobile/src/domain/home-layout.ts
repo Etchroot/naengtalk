@@ -20,10 +20,10 @@ export function getCompactHeaderMetrics() {
     controlRadius: 10,
     logoSize: 28,
     homeIconSize: 17,
-    titleFontSize: 16,
-    titleLineHeight: 20,
-    subtitleFontSize: 10,
-    subtitleLineHeight: 14,
+    titleFontSize: 21,
+    titleLineHeight: 26,
+    taglineFontSize: 13,
+    taglineLineHeight: 18,
   } as const;
 }
 

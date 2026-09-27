@@ -55,4 +55,6 @@ Updated from project sources and the approved local design direction on 2026-09-
 - 2026-09-27: increased both home action-card titles by 2px to responsive 16/17/19px steps while keeping one-line fitting. After the same-copy comparison, selected bundled SUIT Regular/Medium/SemiBold/Bold for Korean and English text throughout the app.
 - 2026-09-27: separated allergy registration and allergy management into two cards. Allergy rows use a green bullet and a compact red delete control consistent with cooking-tool deletion.
 - 2026-09-27: after user approval, deployed the complete refrigerator-surface, responsive-canvas, compact-header, larger-CTA, SUIT typography, cooking-tool, and allergy-list design set to EAS Hosting production.
+- 2026-09-27: changed the common header to a stronger 21px single-line title; only Home keeps its tagline, inline beside `냉톡`. Added a compact `Today / MM.DD` block aligned with the urgent inventory date column and red date emphasis for items earlier than the device-local day.
+- 2026-09-27: deployed the approved header and expiry-visibility update to EAS Hosting production after a clean web export; verified the fixed production URL shows the new local-date block and no longer shows the sample-date caption.
 
