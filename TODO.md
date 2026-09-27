@@ -17,6 +17,7 @@
 | 요리 | 상세·단계 내부 타이머, 편집 가능한 사용량, 완료 저장·재고 차감·중복 방지, 완료 후 선택 공유 | 완료 |
 | UI | SUIT 글꼴, 새틴 냉장고 카드, 반응형 9:20 캔버스, 경과 소비기한 강조, 접근 가능한 주요 조작 | 완료 |
 | 배포 | `https://naengtalk.expo.app` production 웹과 Supabase Edge Functions | 완료 |
+| 안정화 | `menu-chat` 알레르기 후보 재시도 수정 v13 배포와 production 반복 스모크 | 완료 |
 | 코드 정리 | Expo 샘플·폐기된 R2 에셋 제거, 모델·공통 chrome·7개 화면·6개 모달 모듈 분리, Android 기반 보존 | 완료 |
 | 문서 | 제품 기획·PRD·TRD·결정·README 최신화, 버튼 수준 사용자 흐름 작성 | 완료 |
 
@@ -24,11 +25,10 @@
 
 | 우선순위 | 작업 | 완료 조건 | 상태 |
 | ---: | --- | --- | --- |
-| 1 | `menu-chat` 알레르기 후보 재시도 수정 배포 | 로컬 회귀 테스트가 통과한 수정본을 배포하고 `remote-menu-chat-smoke`를 반복 실행해 502 없이 안전 후보로 전환되는지 확인 | 대기 |
-| 2 | Google OAuth production 연결 | Google 로그인 성공·취소·실패·세션 복원·로그아웃을 웹과 Android에서 확인 | 대기 |
-| 3 | OCR·권장 소진일 최종 QA | 예시 1~4와 기존 10종 직접 입력 세트를 최신 함수·공용 DB 기준으로 다시 비교하고 빈 날짜·오인식을 기록 | 대기 |
-| 4 | Android 내부 배포 APK | EAS production APK 빌드, 실기기 설치, 사진 보관함 다중 선택, SecureStore 세션, 요리·재고 핵심 흐름, EAS Update 확인 | 대기 |
-| 5 | 제출 최종 점검 | production URL·APK 링크·QR·AI 활용 문안·라이선스·개인정보·대회 필수 항목을 실제 제출 화면에서 확인 | 대기 |
+| 1 | Google OAuth production 연결 | Google 로그인 성공·취소·실패·세션 복원·로그아웃을 웹과 Android에서 확인 | 대기 |
+| 2 | OCR·권장 소진일 최종 QA | 예시 1~4와 기존 10종 직접 입력 세트를 최신 함수·공용 DB 기준으로 다시 비교하고 빈 날짜·오인식을 기록 | 대기 |
+| 3 | Android 내부 배포 APK | EAS production APK 빌드, 실기기 설치, 사진 보관함 다중 선택, SecureStore 세션, 요리·재고 핵심 흐름, EAS Update 확인 | 대기 |
+| 4 | 제출 최종 점검 | production URL·APK 링크·QR·AI 활용 문안·라이선스·개인정보·대회 필수 항목을 실제 제출 화면에서 확인 | 대기 |
 
 ## 후속 릴리스
 
@@ -45,4 +45,4 @@
 - Android의 Expo Router, ImagePicker, SecureStore, EAS Updates, adaptive icon과 플랫폼 adapter는 향후 앱 배포 비용을 줄이므로 유지한다.
 - Supabase 원격 스키마·migration·RLS·Edge Function은 읽기 전용으로 점검하고 결과를 `docs/SUPABASE_AUDIT.md`에 기록한다.
 - 전체 Node 회귀 테스트, 엄격한 TypeScript 검사, Expo 의존성·웹 export, production 핵심 흐름을 마지막에 다시 확인한다.
-- 2026-09-28 점검에서 로컬 회귀·TypeScript·의존성·웹 export와 게스트/재고/소비기한/레시피 원격 스모크를 통과했다. 원격 메뉴 스모크는 알레르기 후보 재시도 결함을 발견해 로컬 수정·테스트까지 완료했으며 배포와 production 재검증만 남았다.
+- 2026-09-28 점검에서 로컬 회귀·TypeScript·의존성·웹 export와 게스트/재고/소비기한/레시피 원격 스모크를 통과했다. 발견한 알레르기 후보 재시도 결함은 `menu-chat` v13으로 배포하고 production 반복 스모크까지 통과했다.
