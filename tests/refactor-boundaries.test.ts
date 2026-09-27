@@ -11,6 +11,7 @@ const buttonPath = new URL('../mobile/src/features/naengtalk/components/app-butt
 const headerPath = new URL('../mobile/src/features/naengtalk/components/app-header.tsx', import.meta.url);
 const navigationPath = new URL('../mobile/src/features/naengtalk/components/bottom-navigation.tsx', import.meta.url);
 const containerPath = new URL('../mobile/src/features/NaengTalk.tsx', import.meta.url);
+const guestResetScriptPath = new URL('../mobile/scripts/verify-guest-reset.mjs', import.meta.url);
 const screenPaths = [
   'login-screen.tsx',
   'home-screen.tsx',
@@ -40,6 +41,13 @@ test('android foundations remain while expo demo files are absent', () => {
   assert.ok(app.android.adaptiveIcon.foregroundImage);
   assert.equal(existsSync(deadWebBadgePath), false);
   assert.equal(existsSync(deadR2Path), false);
+});
+
+test('remote guest reset verification follows the current thirty-item seed', () => {
+  const source = readFileSync(guestResetScriptPath, 'utf8');
+  assert.match(source, /createGuestInventory/);
+  assert.match(source, /30-item seed|30종/);
+  assert.doesNotMatch(source, /10-item seed/);
 });
 
 test('shared naengtalk modules own model and navigation chrome', () => {

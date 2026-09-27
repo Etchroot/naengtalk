@@ -1,5 +1,6 @@
 import assert from 'node:assert/strict';
 import { createClient } from '@supabase/supabase-js';
+import { createGuestInventory } from '../src/domain/seed.ts';
 
 const url = process.env.EXPO_PUBLIC_SUPABASE_URL;
 const publicKey = process.env.EXPO_PUBLIC_SUPABASE_ANON_KEY;
@@ -9,18 +10,9 @@ const supabase = createClient(url, publicKey, {
   auth: { persistSession: false, autoRefreshToken: false },
 });
 
-const expectedKeys = [
-  'doenjang',
-  'egg',
-  'green-onion',
-  'kimchi',
-  'oil',
-  'onion',
-  'pork',
-  'potato',
-  'soy',
-  'tofu',
-];
+const expectedKeys = createGuestInventory(new Date().toISOString().slice(0, 10))
+  .map((item) => item.id)
+  .sort();
 
 const { data: authData, error: authError } = await supabase.auth.signInAnonymously();
 if (authError || !authData.user) throw authError ?? new Error('Anonymous user was not created.');
@@ -50,4 +42,4 @@ const { data: rows, error: inventoryError } = await supabase
 if (inventoryError) throw inventoryError;
 
 assert.deepEqual(rows.map((row) => row.ingredient_key), expectedKeys);
-console.log('Guest reset integration verified: isolated 10-item seed restored.');
+console.log('Guest reset integration verified: isolated 30-item seed restored.');

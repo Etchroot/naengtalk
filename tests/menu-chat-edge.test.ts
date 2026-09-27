@@ -32,6 +32,7 @@ async function invokeMenuChat(
     ingredient_key: 'tofu', display_name: '두부', quantity: 200,
     unit: 'g', use_by_at: '2026-09-15', date_source: 'estimated',
   }],
+  allergens: string[] = [],
 ) {
   const calls: Array<{ url: string; body?: Record<string, unknown> }> = [];
   const originalFetch = globalThis.fetch;
@@ -64,7 +65,7 @@ async function invokeMenuChat(
   try {
     const request = new Request('https://edge.test/menu-chat', {
       method: 'POST', headers: { authorization: 'Bearer user-test' },
-      body: JSON.stringify({ message: '두부국 먹고 싶어', history: [], cookingTools: ['냄비'], allergens: [] }),
+      body: JSON.stringify({ message: '두부국 먹고 싶어', history: [], cookingTools: ['냄비'], allergens }),
     });
     const response = await handler!(request);
     return { response, result: await response.json() as Record<string, unknown>, calls };
@@ -133,6 +134,26 @@ test('a non-actionable no-recipe placeholder is repaired rather than returned as
   });
   assert.equal(response.status, 200);
   assert.equal((result.recipe as typeof modelRecipe)?.title, '두부국');
+});
+
+test('an allergen-rejected candidate falls through to a safe recipe attempt', async () => {
+  const unsafeRecipe = {
+    ...modelRecipe,
+    steps: [{ text: '새우젓을 넣고 끓여주세요.', minutes: 5 }],
+  };
+  const { response, result, calls } = await invokeMenuChat([{
+    id: 'MFDS_000028', title: '두부국', origin: 'MFDS',
+    name_score: 100, matched_count: 1, ingredient_count: 1,
+  }], [], (body) => {
+    const input = JSON.parse(String(body.input)) as Record<string, unknown>;
+    return input.internalCandidate ? unsafeRecipe : modelRecipe;
+  }, undefined, ['새우']);
+
+  assert.equal(response.status, 200);
+  assert.equal((result.recipe as typeof modelRecipe)?.title, '두부국');
+  const terraCalls = calls.filter((call) => call.url.endsWith('/v1/responses')
+    && call.body?.model === 'gpt-5.6-terra');
+  assert.equal(terraCalls.length, 2);
 });
 
 test('the final repair narrows a large pantry to requested foods and real staples with exact units', async () => {

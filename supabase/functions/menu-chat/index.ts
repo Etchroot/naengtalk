@@ -280,10 +280,13 @@ Deno.serve(async (request) => {
         return json(200, await generateRecipe(context, input.allergens, candidate, lots, attempt.purchaseLimit));
       } catch (error) {
         const code = (error as Error).message;
-        if (code !== 'PURCHASE_LIMIT_EXCEEDED' && code !== 'RECIPE_NOT_ACTIONABLE') throw error;
+        if (code !== 'PURCHASE_LIMIT_EXCEEDED' && code !== 'RECIPE_NOT_ACTIONABLE'
+          && code !== 'ALLERGEN_REJECTED') throw error;
         lastValidationFeedback = code === 'RECIPE_NOT_ACTIONABLE'
           ? { missingNames: [], problem: '실행 가능한 요리 대신 추천 불가 문구를 반환함' }
-          : { missingNames: (error as Error & { missingNames?: string[] }).missingNames ?? [] };
+          : code === 'ALLERGEN_REJECTED'
+            ? { missingNames: [], problem: '등록된 알레르기 재료가 포함됨' }
+            : { missingNames: (error as Error & { missingNames?: string[] }).missingNames ?? [] };
       }
     }
     if (lastValidationFeedback) {
