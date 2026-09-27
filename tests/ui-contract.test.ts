@@ -31,5 +31,6 @@ test('AI waits use a visible native activity indicator', () => {
   assert.match(appSource, /ActivityIndicator/);
   assert.match(appSource, /accessibilityState=\{\{ disabled: aiBusy, busy: aiBusy \}\}/);
   assert.match(appSource, /aiBusy \? \(\s*<ActivityIndicator size="small" color="white" \/>/);
-  assert.match(appSource, /loading=\{purchaseBusy\}/);
+  assert.match(appSource, /busy=\{purchaseBusy\}/);
+  assert.match(appSource, /loading=\{busy\}/);
 });

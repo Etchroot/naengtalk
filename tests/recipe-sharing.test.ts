@@ -47,6 +47,6 @@ test('new proposal clears pending like and saved recipe identity', () => {
 test('recipe detail exposes the exact sharing consent copy and an empty-to-yellow thumb', () => {
   assert.match(featureSources, /좋아요 표시를 하면 이 레시피가 다른 사용자도 이용할 수 있도록 공유됩니다\./);
   assert.match(featureSources, /<ThumbsUp/);
-  assert.match(featureSources, /state\.sharePending \|\| state\.shared \? "#FFD64D" : "transparent"/);
-  assert.match(featureSources, /<Button onPress=\{startUsageReview\}>요리 완료<\/Button>/);
+  assert.match(featureSources, /sharePending \|\| shared \? "#FFD64D" : "transparent"/);
+  assert.match(featureSources, /<AppButton onPress=\{onStartUsageReview\}>요리 완료<\/AppButton>/);
 });

@@ -20,6 +20,14 @@ const screenPaths = [
   'tools-screen.tsx',
   'settings-screen.tsx',
 ].map((name) => new URL(`../mobile/src/features/naengtalk/screens/${name}`, import.meta.url));
+const modalPaths = [
+  'chat-inventory-review-modal.tsx',
+  'recipe-detail-modal.tsx',
+  'overdraw-confirm-modal.tsx',
+  'share-consent-modal.tsx',
+  'inventory-sort-modal.tsx',
+  'purchase-registration-modal.tsx',
+].map((name) => new URL(`../mobile/src/features/naengtalk/modals/${name}`, import.meta.url));
 
 test('android foundations remain while expo demo files are absent', () => {
   const pkg = JSON.parse(readFileSync(packagePath, 'utf8'));
@@ -56,4 +64,18 @@ test('screens are presentational and never import services', () => {
   assert.match(containerSource, /<HomeScreen/);
   assert.match(containerSource, /<ChatScreen/);
   assert.match(containerSource, /<SettingsScreen/);
+});
+
+test('modal modules do not call remote services and expose explicit actions', () => {
+  for (const path of modalPaths) {
+    assert.equal(existsSync(path), true);
+    assert.doesNotMatch(readFileSync(path, 'utf8'), /from ["'].*\/services\//);
+  }
+  const purchaseModalSource = readFileSync(modalPaths[5], 'utf8');
+  const recipeModalSource = readFileSync(modalPaths[1], 'utf8');
+  assert.match(purchaseModalSource, /onClose/);
+  assert.match(purchaseModalSource, /onAnalyze/);
+  assert.match(purchaseModalSource, /onRegister/);
+  assert.match(recipeModalSource, /onFinishCooking/);
+  assert.match(recipeModalSource, /onConfirmShare/);
 });

@@ -1,12 +1,8 @@
 import React, { useEffect, useMemo, useRef, useState } from "react";
 import {
-  ActivityIndicator,
-  Image,
-  Modal,
   Platform,
   Pressable,
   ScrollView,
-  TextInput,
   useWindowDimensions,
   View,
 } from "react-native";
@@ -15,11 +11,8 @@ import AsyncStorage from "@react-native-async-storage/async-storage";
 import { Text } from "../components/app-text.tsx";
 import {
   Timer,
-  Check,
-  ThumbsUp,
 } from "lucide-react-native";
 import { completeCooking, remainingSeconds } from "../domain/cooking.ts";
-import { recipeDisplayReason } from "../domain/recipe-provenance.ts";
 import { resetGuestDemoInventory } from "../domain/guest-demo.ts";
 import {
   getCompactHeaderMetrics,
@@ -27,7 +20,6 @@ import {
   getToolCardLayout,
   getUrgentInventoryLimit,
 } from "../domain/home-layout.ts";
-import { formatCookingStepTitle } from "../domain/recipe-presentation.ts";
 import {
   recipeContextMessage,
   recipeUsage,
@@ -44,7 +36,6 @@ import {
   getPhoneShellStyle,
   getResponsiveAppCanvas,
 } from "../domain/web-frame.ts";
-import { breakSentences } from "../domain/readable-text.ts";
 import {
   createUsageDraft,
   updateUsageDraftQuantity,
@@ -91,7 +82,6 @@ import { registerRemoteInventory } from "../services/register-inventory.ts";
 import { purchaseDemoAssets } from "./purchase-demo-assets.ts";
 import { color, s } from "./theme";
 import { createInitialState, type AppTab, type LocalState } from "./naengtalk/model.ts";
-import { AppButton as Button } from "./naengtalk/components/app-button.tsx";
 import { AppHeader } from "./naengtalk/components/app-header.tsx";
 import { BottomNavigation } from "./naengtalk/components/bottom-navigation.tsx";
 import { sampleRecipe } from "./naengtalk/sample-recipe.ts";
@@ -102,6 +92,12 @@ import { InventoryScreen } from "./naengtalk/screens/inventory-screen.tsx";
 import { RecipesScreen } from "./naengtalk/screens/recipes-screen.tsx";
 import { ToolsScreen } from "./naengtalk/screens/tools-screen.tsx";
 import { SettingsScreen } from "./naengtalk/screens/settings-screen.tsx";
+import { ChatInventoryReviewModal } from "./naengtalk/modals/chat-inventory-review-modal.tsx";
+import { RecipeDetailModal } from "./naengtalk/modals/recipe-detail-modal.tsx";
+import { OverdrawConfirmModal } from "./naengtalk/modals/overdraw-confirm-modal.tsx";
+import { ShareConsentModal } from "./naengtalk/modals/share-consent-modal.tsx";
+import { InventorySortModal } from "./naengtalk/modals/inventory-sort-modal.tsx";
+import { PurchaseRegistrationModal } from "./naengtalk/modals/purchase-registration-modal.tsx";
 
 const titles = [
   "냉톡",
@@ -149,7 +145,6 @@ export default function NaengTalk() {
     useState<InventorySortMode>("expiry");
   const [sortMenu, setSortMenu] = useState(false);
   const lock = useRef(false);
-  const recipeScroll = useRef<ScrollView>(null);
   const stableWebViewport = useRef({ width: viewport.width, height: viewport.height });
   const chatBlurTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
   if (Platform.OS === "web" && !chatInputFocused) {
@@ -816,619 +811,135 @@ export default function NaengTalk() {
             />
           </>
         )}
-        <Modal
-          visible={chatInventoryRows.length > 0}
-          transparent
-          animationType="slide"
-          onRequestClose={() => { if (!chatInventoryBusy) setChatInventoryRows([]); }}
-        >
-          <View style={{ flex: 1, justifyContent: "center", padding: 20, backgroundColor: "#0007" }}>
-            <View style={[s.card, { alignSelf: "center", width: "100%", maxWidth: 440, maxHeight: "85%" }]}>
-              <Text style={s.title}>채팅 재고 변경 확인</Text>
-              <Text style={s.muted}>재료명과 수량을 확인하고 승인하면 재고에 반영합니다.</Text>
-              <ScrollView showsVerticalScrollIndicator={false}>
-                {chatInventoryRows.map((row) => (
-                  <View key={row.id} style={[s.card, { padding: 12, marginVertical: 6 }]}>
-                    <Text style={[s.text, { fontWeight: "700" }]}>
-                      {row.action === "add" ? "추가" : row.action === "consume" ? "소비" : "남은 수량 설정"}
-                    </Text>
-                    <TextInput
-                      accessibilityLabel={`${row.name} 재료명`}
-                      style={s.input}
-                      value={row.name}
-                      onChangeText={(name) => setChatInventoryRows((current) => current.map((item) => {
-                        if (item.id !== row.id) return item;
-                        const match = state.inventory.find((stock) => stock.name.trim() === name.trim());
-                        return { ...item, name,
-                          ingredientKey: item.action === "add" ? normalizedIngredientKey(name)
-                            : match?.id ?? "" };
-                      }))}
-                    />
-                    <TextInput
-                      accessibilityLabel={`${row.name} 수량`}
-                      placeholder="예: 300g, 2개"
-                      style={s.input}
-                      value={row.quantityText}
-                      onChangeText={(quantityText) => setChatInventoryRows((current) => current.map((item) => {
-                        if (item.id !== row.id) return item;
-                        const unit = quantityText.trim().match(/(?:g|ml|개|대)$/i)?.[0].toLowerCase() ?? item.unit;
-                        return { ...item, quantityText, unit };
-                      }))}
-                    />
-                    {row.action === "add" ? (
-                      <>
-                        <Text style={s.muted}>보관 상태</Text>
-                        <View style={{ flexDirection: "row", gap: 6, marginVertical: 8 }}>
-                          {([
-                            ["room_temperature", "실온"],
-                            ["refrigerated", "냉장"],
-                            ["frozen", "냉동"],
-                          ] as const).map(([method, label]) => (
-                            <Pressable
-                              key={method}
-                              accessibilityRole="button"
-                              accessibilityLabel={`${row.name} ${label} 보관`}
-                              accessibilityState={{ selected: row.storageMethod === method }}
-                              onPress={() => setChatInventoryRows((current) => current.map((item) =>
-                                item.id === row.id ? { ...item, storageMethod: method, useByDate: "" } : item))}
-                              style={{ paddingHorizontal: 12, paddingVertical: 7, borderRadius: 12,
-                                borderWidth: 1, borderColor: row.storageMethod === method ? color.green : color.line,
-                                backgroundColor: row.storageMethod === method ? "#edf6eb" : "#fff" }}
-                            >
-                              <Text style={{ color: row.storageMethod === method ? color.green : color.muted }}>{label}</Text>
-                            </Pressable>
-                          ))}
-                        </View>
-                        <Text style={s.muted}>권장 소진일</Text>
-                        <TextInput
-                          accessibilityLabel={`${row.name} 권장 소진일`}
-                          placeholder="YYYY-MM-DD"
-                          style={s.input}
-                          value={row.useByDate}
-                          onChangeText={(useByDate) => setChatInventoryRows((current) => current.map((item) =>
-                            item.id === row.id ? { ...item, useByDate } : item))}
-                        />
-                      </>
-                    ) : <Text style={s.muted}>현재 재고 {row.available}{row.unit}</Text>}
-                  </View>
-                ))}
-              </ScrollView>
-              {error ? <Text accessibilityRole="alert" style={{ color: "#a94232" }}>{error}</Text> : null}
-              <View style={s.row}>
-                <View style={{ flex: 1 }}><Button secondary onPress={() => { setChatInventoryRows([]); setError(""); }}>취소</Button></View>
-                <View style={{ flex: 1 }}><Button loading={chatInventoryBusy} onPress={() => void confirmChatInventory()}>승인</Button></View>
-              </View>
-            </View>
-          </View>
-        </Modal>
-        <Modal
+        <ChatInventoryReviewModal
+          rows={chatInventoryRows}
+          busy={chatInventoryBusy}
+          error={error}
+          onClose={() => { setChatInventoryRows([]); setError(""); }}
+          onConfirm={() => void confirmChatInventory()}
+          onChangeRow={(id, patch) => setChatInventoryRows((current) => current.map((item) => {
+            if (item.id !== id) return item;
+            if (patch.name !== undefined) {
+              const match = state.inventory.find((stock) => stock.name.trim() === patch.name?.trim());
+              return {
+                ...item,
+                ...patch,
+                ingredientKey: item.action === "add" ? normalizedIngredientKey(patch.name) : match?.id ?? "",
+              };
+            }
+            if (patch.quantityText !== undefined) {
+              const unit = patch.quantityText.trim().match(/(?:g|ml|개|대)$/i)?.[0].toLowerCase() ?? item.unit;
+              return { ...item, ...patch, unit };
+            }
+            return { ...item, ...patch };
+          }))}
+        />
+        <RecipeDetailModal
           visible={detail}
-          animationType="slide"
+          recipe={activeRecipe}
+          providedAt={state.providedAt}
+          timer={timer}
+          review={review}
+          usageDraft={usageDraft}
+          inventory={state.inventory}
+          error={error}
+          returnLabel={tab === 3 ? "레시피 목록으로 돌아가기" : "채팅으로 돌아가기"}
+          canShare={canShareRecipe(state.recipe)}
+          sharePending={state.sharePending}
+          shared={state.shared}
+          shareBusy={shareBusy}
+          safeAreaStyle={safeAreaStyle}
+          appViewportStyle={appViewportStyle}
+          appFrameStyle={appFrameStyle}
+          headerMetrics={compactHeader}
           onRequestClose={() => setDetail(false)}
-        >
-          <View style={s.stage}>
-            <SafeAreaView style={safeAreaStyle}>
-              <View style={appViewportStyle}>
-                <View style={appFrameStyle}>
-              <View
-                style={[
-                  s.header,
-                  { padding: compactHeader.padding, gap: compactHeader.gap },
-                ]}
-              >
-                <Text
-                  style={[
-                    s.title,
-                    {
-                      fontSize: compactHeader.titleFontSize,
-                      lineHeight: compactHeader.titleLineHeight,
-                    },
-                  ]}
-                >
-                  {activeRecipe.title}
-                </Text>
-              </View>
-              {timer}
-              <ScrollView
-                ref={recipeScroll}
-                onContentSizeChange={() => { if (review) recipeScroll.current?.scrollToEnd({ animated: true }); }}
-                showsVerticalScrollIndicator={false}
-                contentContainerStyle={s.content}
-              >
-                <Text style={s.muted}>
-                  제공일 {state.providedAt.replaceAll("-", ". ")} · {activeRecipe.servings}인분 · {activeRecipe.minutes}분
-                </Text>
-                <Text style={s.badge}>{breakSentences(recipeDisplayReason(activeRecipe))}</Text>
-                <View style={s.card}>
-                  <Text style={s.title}>준비 재료</Text>
-                  {activeRecipe.ingredients.map((ingredient, index) => (
-                    <Text key={`${ingredient.name}-${index}`} style={s.text}>
-                      {ingredient.name}
-                      {ingredient.quantity !== null && ingredient.unit
-                        ? ` ${ingredient.quantity}${ingredient.unit}`
-                        : ""}
-                      {ingredient.requiredPurchase ? " · 구매 필요" : ""}
-                    </Text>
-                  ))}
-                </View>
-                {activeRecipe.steps.map((step, i) => (
-                  <View style={s.card} key={i}>
-                    <Text style={[s.title, { fontSize: 16 }]}>
-                      {formatCookingStepTitle(i)}
-                    </Text>
-                    <Text style={s.text}>{breakSentences(step.text)}</Text>
-                    {step.minutes > 0 && (
-                      <Button
-                        secondary
-                        onPress={() => {
-                          const startedAt = Date.now();
-                          setNow(startedAt);
-                          setState({
-                            ...state,
-                            timer: {
-                              label: `${i + 1}단계`,
-                              endsAt: startedAt + step.minutes * 60000,
-                            },
-                          });
-                        }}
-                      >{`${step.minutes}분 타이머 시작`}</Button>
-                    )}
-                  </View>
-                ))}
-                {review && (
-                  <View style={[s.card, { backgroundColor: color.soft }]}>
-                    <Text style={s.title}>사용량을 확인해주세요</Text>
-                    {usageDraft.map((line) => (
-                      <View key={line.ingredientId} style={s.usageRow}>
-                        <Text style={[s.text, { flex: 1 }]}>
-                          {state.inventory.find((x) => x.id === line.ingredientId)?.name}
-                        </Text>
-                        <TextInput
-                          accessibilityLabel={`${state.inventory.find((x) => x.id === line.ingredientId)?.name ?? "재료"} 사용량`}
-                          inputMode="decimal"
-                          value={line.quantityText}
-                          onChangeText={(quantityText) => setUsageDraft((current) => (
-                            updateUsageDraftQuantity(current, line.ingredientId, quantityText)
-                          ))}
-                          style={s.usageInput}
-                        />
-                        <Text style={s.text}>{line.unit}</Text>
-                      </View>
-                    ))}
-                    <Text style={s.muted}>
-                      확정하면 현재 재고에서 차감합니다.
-                    </Text>
-                    <Button onPress={() => void finish()}>사용량 확정</Button>
-                  </View>
-                )}
-                {error ? (
-                  <Text accessibilityRole="alert" style={{ color: "#a94232" }}>
-                    {error}
-                  </Text>
-                ) : null}
-              </ScrollView>
-              <View style={[s.footer, s.row]}>
-                <View style={{ flex: 1 }}>
-                  <Button
-                    secondary
-                    onPress={() => {
-                      setDetail(false);
-                      setReview(false);
-                      setUsageDraft([]);
-                    }}
-                  >
-                    {tab === 3
-                      ? "레시피 목록으로 돌아가기"
-                      : "채팅으로 돌아가기"}
-                  </Button>
-                </View>
-                {canShareRecipe(state.recipe) ? (
-                  <Pressable
-                    accessibilityRole="button"
-                    accessibilityLabel={state.shared ? "공유된 레시피" : "레시피 좋아요 및 공유"}
-                    accessibilityState={{ disabled: state.shared || shareBusy, busy: shareBusy }}
-                    disabled={state.shared || shareBusy}
-                    onPress={() => setShareConsentVisible(true)}
-                    style={{ width: 44, height: 44, alignItems: "center", justifyContent: "center" }}
-                  >
-                    {shareBusy ? <ActivityIndicator size="small" color={color.green} /> : (
-                      <ThumbsUp
-                        size={24}
-                        color={state.sharePending || state.shared ? "#D9A900" : color.green}
-                        fill={state.sharePending || state.shared ? "#FFD64D" : "transparent"}
-                      />
-                    )}
-                  </Pressable>
-                ) : null}
-                <Button onPress={startUsageReview}>요리 완료</Button>
-              </View>
-                </View>
-              </View>
-            </SafeAreaView>
-          </View>
-        </Modal>
-        <Modal
-          visible={overdraw !== null}
-          transparent
-          animationType="fade"
-          onRequestClose={() => setOverdraw(null)}
-        >
-          <View style={{ flex: 1, justifyContent: "center", padding: 24, backgroundColor: "#0008" }}>
-            <View style={[s.card, { alignSelf: "center", width: "100%", maxWidth: 440, gap: 16 }]}>
-              <Text style={s.title}>재고 사용량 확인</Text>
-              <Text style={s.text}>
-                {overdraw?.name}은(는) 현재 재고보다 많은 수량을 소비했습니다. 전량 소비한 것으로 처리할까요?
-              </Text>
-              <View style={s.row}>
-                <View style={{ flex: 1 }}><Button secondary onPress={() => setOverdraw(null)}>취소</Button></View>
-                <View style={{ flex: 1 }}><Button onPress={() => {
-                  if (!overdraw) return;
-                  const current = overdraw;
-                  setOverdraw(null);
-                  if (current.kind === "chat") {
-                    const capped = capChatInventoryRow(chatInventoryRows, current.rowId, current.available);
-                    setChatInventoryRows(capped);
-                    if (capped.length) void confirmChatInventory(capped);
-                    return;
-                  }
-                  const capped = current.available <= 0
-                    ? usageDraft.filter((line) => line.ingredientId !== current.rowId)
-                    : updateUsageDraftQuantity(usageDraft, current.rowId, String(current.available));
-                  setUsageDraft(capped);
-                  if (capped.length) void finish(capped);
-                  else setError("차감할 등록 재고가 없습니다. 사용량을 다시 확인해주세요.");
-                }}>확인</Button></View>
-              </View>
-            </View>
-          </View>
-        </Modal>
-        <Modal
-          visible={shareConsentVisible}
-          transparent
-          animationType="fade"
-          onRequestClose={() => setShareConsentVisible(false)}
-        >
-          <View style={{ flex: 1, justifyContent: "center", padding: 24, backgroundColor: "#0007" }}>
-            <View style={[s.card, { alignSelf: "center", width: "100%", maxWidth: 440, gap: 16 }]}>
-              <Text style={s.title}>레시피 공유</Text>
-              <Text style={s.text}>좋아요 표시를 하면 이 레시피가 다른 사용자도 이용할 수 있도록 공유됩니다.</Text>
-              <View style={s.row}>
-                <View style={{ flex: 1 }}><Button secondary onPress={() => setShareConsentVisible(false)}>취소</Button></View>
-                <View style={{ flex: 1 }}><Button onPress={() => void confirmShare()}>확인</Button></View>
-              </View>
-            </View>
-          </View>
-        </Modal>
-        <Modal
-          visible={sortMenu}
-          transparent
-          animationType="fade"
-          onRequestClose={() => setSortMenu(false)}
-        >
-          <Pressable
-            style={{
-              flex: 1,
-              justifyContent: "center",
-              padding: 24,
-              backgroundColor: "#0007",
-            }}
-            onPress={() => setSortMenu(false)}
-          >
-            <View
-              style={[
-                s.card,
-                { alignSelf: "center", width: "100%", maxWidth: 360 },
-              ]}
-            >
-              <Text style={s.title}>재고 정렬</Text>
-              {(
-                [
-                  ["expiry", "남은 소비기한 순"],
-                  ["name", "이름순"],
-                ] as const
-              ).map(([mode, label]) => (
-                <Pressable
-                  accessibilityRole="button"
-                  key={mode}
-                  style={[s.row, { minHeight: 48 }]}
-                  onPress={() => {
-                    setInventorySort(mode);
-                    setSortMenu(false);
-                  }}
-                >
-                  <Text style={[s.text, { flex: 1 }]}>{label}</Text>
-                  {inventorySort === mode ? (
-                    <Check size={20} color={color.green} />
-                  ) : null}
-                </Pressable>
-              ))}
-            </View>
-          </Pressable>
-        </Modal>
-        <Modal
-          visible={registration}
-          transparent
-          animationType="fade"
-          onRequestClose={() => {
-            closeRegistration();
+          onBack={() => {
+            setDetail(false);
+            setReview(false);
+            setUsageDraft([]);
           }}
-        >
-          <View
-            style={{
-              flex: 1,
-              justifyContent: "center",
-              padding: 24,
-              backgroundColor: "#0007",
-            }}
-          >
-            <View
-              style={[
-                s.card,
-                { alignSelf: "center", width: "100%", maxWidth: 440, maxHeight: "90%" },
-              ]}
-            >
-              <Text style={s.title}>
-                {direct
-                  ? "식품 직접 입력"
-                  : purchaseRows.length || purchaseFailures.length
-                    ? "구매내역 확인"
-                    : purchasePicker
-                      ? "구매내역 이미지 선택"
-                      : "재고 등록"}
-              </Text>
-              {direct ? (
-                <>
-                  <TextInput
-                    multiline
-                    style={[s.input, { minHeight: 110 }]}
-                    placeholder="식품의 이름과 용량, 유통기한을 적어주세요."
-                    value={directInput}
-                    onChangeText={setDirectInput}
-                    editable={!purchaseBusy}
-                  />
-                  <Text style={s.muted}>
-                    {breakSentences("AI가 입력 내용을 분석한 뒤 재고명, 수량, 권장 소진일을 보여드립니다. 확인 후 최종 등록할 수 있습니다.")}
-                  </Text>
-                  {purchaseBusy ? (
-                    <View style={s.loadingRow}>
-                      <Text accessibilityLiveRegion="polite" style={[s.muted, { flex: 1 }]}>
-                        {purchaseProgress || "입력 내용을 분석하고 있어요"}…
-                      </Text>
-                      <ActivityIndicator size="small" color={color.green} />
-                    </View>
-                  ) : null}
-                  <Button
-                    loading={purchaseBusy}
-                    disabled={!directInput.trim()}
-                    onPress={() => void handleAnalyzeDirectInventory()}
-                  >
-                    식품 등록
-                  </Button>
-                  <Text style={s.muted}>{error}</Text>
-                </>
-              ) : purchaseRows.length || purchaseFailures.length ? (
-                <>
-                <ScrollView showsVerticalScrollIndicator={false}>
-                  {purchaseRows.some((row) => row.needsReview) || purchaseFailures.length ? (
-                    <Text
-                      accessibilityLiveRegion="polite"
-                      style={{ color: "#a94232", fontWeight: "700", marginBottom: 12 }}
-                    >
-                      직접 입력해야 하는 항목들이 있습니다.
-                    </Text>
-                  ) : null}
-                  <Text style={[s.muted, { marginBottom: 12 }]}>
-                    {breakSentences("재고명, 수량, 권장 소진일을 확인해주세요. 권장 소진일은 AI가 예측해서 기록됩니다. 원본 이미지는 저장하지 않습니다.")}
-                  </Text>
-                  {purchaseRows.map((row) => (
-                    <View
-                      key={row.id}
-                      style={[
-                        s.card,
-                        {
-                          padding: 12,
-                          marginBottom: 12,
-                          borderRadius: 16,
-                          borderColor: row.needsReview ? "#c64b3c" : color.line,
-                          borderWidth: row.needsReview ? 2 : 1,
-                        },
-                      ]}
-                    >
-                      <Text style={[s.muted, { fontWeight: "700" }]}>재고명</Text>
-                      <TextInput
-                        accessibilityLabel={`${row.name || "미확인 식품"} 재고명`}
-                        value={row.name}
-                        onChangeText={(name) => setPurchaseRows((current) => current.map((item) => (
-                          item.id === row.id
-                            ? updatePurchaseReviewRow(item, { name }, new Date().toISOString().slice(0, 10))
-                            : item
-                        )))}
-                        style={s.input}
-                      />
-                      <Text style={[s.muted, { fontWeight: "700" }]}>수량</Text>
-                      <TextInput
-                        accessibilityLabel={`${row.name || "미확인 식품"} 수량`}
-                        placeholder="예: 300g, 2개"
-                        value={row.quantityText}
-                        onChangeText={(quantityText) => setPurchaseRows((current) => current.map((item) => (
-                          item.id === row.id
-                            ? updatePurchaseReviewRow(item, { quantityText }, new Date().toISOString().slice(0, 10))
-                            : item
-                        )))}
-                        style={s.input}
-                      />
-                      <Text style={[s.muted, { fontWeight: "700", marginTop: 8 }]}>보관 상태</Text>
-                      <View style={{ flexDirection: "row", gap: 6, marginVertical: 8 }}>
-                        {([
-                          ["room_temperature", "실온"],
-                          ["refrigerated", "냉장"],
-                          ["frozen", "냉동"],
-                        ] as const).map(([method, label]) => (
-                          <Pressable
-                            key={method}
-                            accessibilityRole="button"
-                            accessibilityLabel={`${row.name || "식품"} ${label} 보관`}
-                            accessibilityState={{ selected: row.storageMethod === method }}
-                            onPress={() => setPurchaseRows((current) => current.map((item) => (
-                              item.id === row.id
-                                ? updatePurchaseReviewRow(item, { storageMethod: method }, new Date().toISOString().slice(0, 10))
-                                : item
-                            )))}
-                            style={{ paddingHorizontal: 12, paddingVertical: 7, borderRadius: 12,
-                              borderWidth: 1, borderColor: row.storageMethod === method ? color.green : color.line,
-                              backgroundColor: row.storageMethod === method ? "#edf6eb" : "#fff" }}
-                          >
-                            <Text style={{ color: row.storageMethod === method ? color.green : color.muted }}>{label}</Text>
-                          </Pressable>
-                        ))}
-                      </View>
-                      <Text style={[s.muted, { fontWeight: "700" }]}>권장 소진일</Text>
-                      <TextInput
-                        accessibilityLabel={`${row.name || "미확인 식품"} 권장 소진일`}
-                        inputMode="numeric"
-                        placeholder="YYYY-MM-DD"
-                        value={row.useByDate}
-                        onChangeText={(useByDate) => setPurchaseRows((current) => current.map((item) => (
-                          item.id === row.id
-                            ? updatePurchaseReviewRow(item, { useByDate }, new Date().toISOString().slice(0, 10))
-                            : item
-                        )))}
-                        style={s.input}
-                      />
-                    </View>
-                  ))}
-                  {purchaseFailures.map((failure) => (
-                    <View
-                      key={failure.id}
-                      style={[s.card, { padding: 12, marginBottom: 12, borderColor: "#c64b3c" }]}
-                    >
-                      <Text style={[s.text, { fontWeight: "700" }]}>{failure.label}</Text>
-                      <Text style={{ color: "#a94232" }}>{failure.error}</Text>
-                    </View>
-                  ))}
-                  {error ? <Text style={{ color: "#a94232", marginTop: 10 }}>{error}</Text> : null}
-                </ScrollView>
-                {purchaseRows.length ? (
-                  <Button
-                    loading={purchaseBusy}
-                    disabled={purchaseRows.some((row) => row.needsReview) || purchaseFailures.length > 0}
-                    onPress={() => void handleRegisterPurchase()}
-                  >
-                    등록
-                  </Button>
-                ) : null}
-                <Button
-                  secondary
-                  onPress={() => {
-                    setPurchaseRows([]);
-                    setPurchaseFailures([]);
-                    setPurchasePicker(true);
-                    setError("");
-                  }}
-                >
-                  다른 이미지 선택
-                </Button>
-                </>
-              ) : purchasePicker ? (
-                <>
-                <ScrollView showsVerticalScrollIndicator={false}>
-                  <Text style={[s.muted, { marginBottom: 12 }]}>
-                    {breakSentences("심사용 샘플을 고르거나 직접 이미지를 등록하세요. 한 번에 최대 10장까지 분석합니다.")}
-                  </Text>
-                  <View style={s.grid}>
-                    {purchaseDemoAssets.map((sample) => {
-                      const selected = purchaseSelections.some((item) => item.id === sample.id);
-                      return (
-                        <Pressable
-                          accessibilityRole="checkbox"
-                          accessibilityState={{ checked: selected, disabled: purchaseBusy }}
-                          accessibilityLabel={`${sample.id} 구매내역 선택`}
-                          disabled={purchaseBusy}
-                          key={sample.id}
-                          onPress={() => togglePurchaseSample(sample)}
-                          style={[
-                            s.card,
-                            {
-                              width: "47%",
-                              padding: 8,
-                              borderRadius: 16,
-                              borderColor: selected ? color.green : color.line,
-                              borderWidth: selected ? 2 : 1,
-                            },
-                          ]}
-                        >
-                          <Image
-                            source={sample.source}
-                            resizeMode="cover"
-                            style={{ width: "100%", height: 116, borderRadius: 10 }}
-                          />
-                          <View style={s.row}>
-                            <Text style={[s.text, { flex: 1, fontWeight: "700" }]}>{sample.id}</Text>
-                            {selected ? <Check size={18} color={color.green} /> : null}
-                          </View>
-                          <Text style={s.muted}>{sample.label}</Text>
-                        </Pressable>
-                      );
-                    })}
-                  </View>
-                  {purchaseSelections.filter((item) => item.kind === "library").map((item) => (
-                    <View key={item.id} style={[s.row, { paddingVertical: 7 }]}>
-                      <Text numberOfLines={1} style={[s.text, { flex: 1 }]}>{item.label}</Text>
-                      <Pressable
-                        accessibilityRole="button"
-                        accessibilityLabel={`${item.label} 선택 해제`}
-                        onPress={() => setPurchaseSelections((current) => current.filter((entry) => entry.id !== item.id))}
-                      >
-                        <Text style={{ color: "#a94232", fontWeight: "700" }}>삭제</Text>
-                      </Pressable>
-                    </View>
-                  ))}
-                  {purchaseBusy ? (
-                    <View style={[s.loadingRow, { marginTop: 12 }]}>
-                      <Text accessibilityLiveRegion="polite" style={[s.text, { flex: 1 }]}>
-                        {purchaseProgress} 분석 중…
-                      </Text>
-                      <ActivityIndicator size="small" color={color.green} />
-                    </View>
-                  ) : null}
-                  {error ? <Text style={{ color: "#a94232", marginTop: 10 }}>{error}</Text> : null}
-                </ScrollView>
-                {purchaseSelections.length ? (
-                  <Button loading={purchaseBusy} onPress={() => void handleAnalyzePurchases()}>
-                    {`선택한 이미지 분석 (${purchaseSelections.length})`}
-                  </Button>
-                ) : null}
-                <Button secondary onPress={() => void handlePickPurchaseImages()}>
-                  이미지 등록
-                </Button>
-                </>
-              ) : (
-                <>
-                  <Text style={s.muted}>
-                    {breakSentences("구매내역 캡처를 AI로 분석하거나 식품을 직접 입력할 수 있습니다.")}
-                  </Text>
-                  <Button
-                    onPress={() => {
-                      setPurchasePicker(true);
-                      setError("");
-                    }}
-                  >
-                    구매내역 캡처 등록
-                  </Button>
-                  <Button secondary onPress={() => setDirect(true)}>
-                    직접 입력
-                  </Button>
-                </>
-              )}
-              <Button
-                secondary
-                onPress={closeRegistration}
-              >
-                닫기
-              </Button>
-            </View>
-          </View>
-        </Modal>
+          onStartTimer={(stepIndex, minutes) => {
+            const startedAt = Date.now();
+            setNow(startedAt);
+            setState({ ...state, timer: { label: `${stepIndex + 1}단계`, endsAt: startedAt + minutes * 60000 } });
+          }}
+          onChangeUsage={(ingredientId, quantityText) => setUsageDraft((current) => (
+            updateUsageDraftQuantity(current, ingredientId, quantityText)
+          ))}
+          onFinishCooking={() => void finish()}
+          onStartUsageReview={startUsageReview}
+          onConfirmShare={() => setShareConsentVisible(true)}
+        />
+        <OverdrawConfirmModal
+          visible={overdraw !== null}
+          ingredientName={overdraw?.name ?? "재료"}
+          onCancel={() => setOverdraw(null)}
+          onConfirm={() => {
+            if (!overdraw) return;
+            const current = overdraw;
+            setOverdraw(null);
+            if (current.kind === "chat") {
+              const capped = capChatInventoryRow(chatInventoryRows, current.rowId, current.available);
+              setChatInventoryRows(capped);
+              if (capped.length) void confirmChatInventory(capped);
+              return;
+            }
+            const capped = current.available <= 0
+              ? usageDraft.filter((line) => line.ingredientId !== current.rowId)
+              : updateUsageDraftQuantity(usageDraft, current.rowId, String(current.available));
+            setUsageDraft(capped);
+            if (capped.length) void finish(capped);
+            else setError("차감할 등록 재고가 없습니다. 사용량을 다시 확인해주세요.");
+          }}
+        />
+        <ShareConsentModal
+          visible={shareConsentVisible}
+          onCancel={() => setShareConsentVisible(false)}
+          onConfirmShare={() => void confirmShare()}
+        />
+        <InventorySortModal
+          visible={sortMenu}
+          sortMode={inventorySort}
+          onClose={() => setSortMenu(false)}
+          onSelect={(mode) => {
+            setInventorySort(mode);
+            setSortMenu(false);
+          }}
+        />
+        <PurchaseRegistrationModal
+          visible={registration}
+          direct={direct}
+          picker={purchasePicker}
+          busy={purchaseBusy}
+          directInput={directInput}
+          rows={purchaseRows}
+          failures={purchaseFailures}
+          selections={purchaseSelections}
+          progress={purchaseProgress}
+          error={error}
+          samples={purchaseDemoAssets}
+          onClose={closeRegistration}
+          onChangeDirectInput={setDirectInput}
+          onAnalyzeDirect={() => void handleAnalyzeDirectInventory()}
+          onChangeRow={(id, patch) => setPurchaseRows((current) => current.map((item) => (
+            item.id === id
+              ? updatePurchaseReviewRow(item, patch, new Date().toISOString().slice(0, 10))
+              : item
+          )))}
+          onRegister={() => void handleRegisterPurchase()}
+          onChooseOther={() => {
+            setPurchaseRows([]);
+            setPurchaseFailures([]);
+            setPurchasePicker(true);
+            setError("");
+          }}
+          onToggleSample={togglePurchaseSample}
+          onRemoveSelection={(id) => setPurchaseSelections((current) => current.filter((entry) => entry.id !== id))}
+          onAnalyze={() => void handleAnalyzePurchases()}
+          onPickImages={() => void handlePickPurchaseImages()}
+          onOpenPicker={() => { setPurchasePicker(true); setError(""); }}
+          onOpenDirect={() => setDirect(true)}
+        />
           </View>
         </View>
       </SafeAreaView>
