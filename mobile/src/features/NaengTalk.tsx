@@ -61,7 +61,6 @@ import {
 } from "../domain/date-presentation.ts";
 import {
   getChatComposerLayout,
-  getAndroidWebFrame,
   getKeyboardAwareWebFrame,
   getPhoneShellStyle,
   getResponsiveAppCanvas,
