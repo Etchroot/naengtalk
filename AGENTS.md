@@ -23,6 +23,7 @@
 | 이미 확정된 교차 기능 결정 확인 | `docs/PRODUCT_DECISIONS.md`에서 키워드 검색 후 관련 항목만 확인 |
 | 실제 UI/UX 디자인·프로토타입·디자인 검수 | `docs/WORKING_RULES.md`의 `Product Design` 구간과 `docs/PRD.md`의 대상 화면 |
 | 대회 일정·규정·라이선스·제출 조건 | `docs/HACKATHON_RULES.md` |
+| Google Play Android 공개 출시·개발자 계정·AdMob·정책 준비 | `docs/GOOGLE_PLAY_RELEASE.md`의 관련 구간 |
 | 제출 문안 작성·최종 링크 입력 | `SUBMISSION.md`, `docs/HACKATHON_RULES.md` |
 | 진행도·다음 작업·차단 요소 | `TODO.md`의 관련 행 |
 | 사용자의 결정·개입 기록 추가 | `HUMAN-IN-THE-ROOF.md`의 마지막 행과 관련 키워드 |

@@ -85,7 +85,7 @@ AI 실행 구조는 하이브리드로 고정한다. Android와 웹은 구매내
 | `recipe_catalog.recipes` | `recipe_id`, `source`, `name`, 분류·영양·이미지·팁·원본 필드 | 사용자 생성 `public.recipes`와 분리된 MFDS·MAFRA 공공 레시피 원본 |
 | `recipe_catalog.ingredients` | `id`, `recipe_id`, `ingredient_no`, `normalized_name`, `parent_ingredient`, `search_key`, 원본 필드 | 구조화 재료 검색과 레시피별 재료 상세 |
 | `recipe_catalog.steps` | `id`, `recipe_id`, `step_no`, `description`, 이미지·팁·원본 필드 | 순서가 보존된 공공 레시피 조리 단계 |
-| `recipe_catalog.shared_recipes` | `id`, `origin_recipe_id`, `title`, `content`, `ingredient_names` | 사용자 동의·요리 완료된 AI 생성 레시피의 개인정보 제거 독립 사본. 개인 레시피 삭제와 무관하게 유지 |
+| `recipe_catalog.shared_recipes` | `id`, `origin_recipe_id`, `title`, `content`, `ingredient_names` | 현재 구현은 사용자 동의·요리 완료된 AI 생성 레시피의 독립 사본이다. Google Play 출시 전 원 작성자 계정 삭제 시 이 사본도 제거할 수 있도록 소유 관계와 삭제 처리를 추가해야 한다. |
 
 ### 공공 레시피 카탈로그 적재 구현 상태
 

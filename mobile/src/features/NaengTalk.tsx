@@ -1,5 +1,6 @@
 import React, { useEffect, useMemo, useRef, useState } from "react";
 import {
+  Alert,
   Platform,
   Pressable,
   ScrollView,
@@ -43,9 +44,14 @@ import {
   type UsageDraft,
 } from "../domain/usage-review.ts";
 import { backendConfig } from "../services/backend-config.ts";
+import { availableLoginMethods } from "../domain/auth-entry.ts";
+import { accountStateKey, restoreAccountState, serializeAccountState } from "../domain/account-local-state.ts";
 import {
+  currentAccount,
+  deleteAccount,
   restoreRemoteSession,
   resetRemoteGuestDemo,
+  signInGoogle,
   signInGuest,
   signOutSession,
 } from "../services/auth.ts";
@@ -84,6 +90,7 @@ import { color, s } from "./theme";
 import { createInitialState, type AppTab, type LocalState } from "./naengtalk/model.ts";
 import { AppHeader } from "./naengtalk/components/app-header.tsx";
 import { BottomNavigation } from "./naengtalk/components/bottom-navigation.tsx";
+import { AdBanner } from "./naengtalk/components/ad-banner";
 import { sampleRecipe } from "./naengtalk/sample-recipe.ts";
 import { LoginScreen } from "./naengtalk/screens/login-screen.tsx";
 import { HomeScreen } from "./naengtalk/screens/home-screen.tsx";
@@ -113,6 +120,8 @@ export default function NaengTalk() {
   const [state, setState] = useState<LocalState>(createInitialState);
   const [ready, setReady] = useState(false);
   const [loggedIn, setLoggedIn] = useState(false);
+  const [accountKind, setAccountKind] = useState<"guest" | "user" | null>(null);
+  const [accountId, setAccountId] = useState<string | null>(null);
   const [authBusy, setAuthBusy] = useState(false);
   const [tab, setTab] = useState<AppTab>(0);
   const [detail, setDetail] = useState(false);
@@ -169,7 +178,7 @@ export default function NaengTalk() {
     appCanvas.designWidth,
   );
   const urgentInventoryLimit = getUrgentInventoryLimit(
-    appCanvas.designHeight,
+    appCanvas.designHeight - (Platform.OS === "android" ? 50 : 0),
   );
   const toolCardLayout = getToolCardLayout(
     appCanvas.designWidth,
@@ -220,23 +229,26 @@ export default function NaengTalk() {
     let active = true;
     const initialize = async () => {
       try {
-        const raw = await AsyncStorage.getItem("naengtalk-local-validation-v1");
-        const stored = raw ? JSON.parse(raw) : null;
-        if (active && stored?.state) setState({ ...createInitialState(), ...stored.state });
-
         if (backendConfig.mode === "supabase") {
           const hasSession = await restoreRemoteSession();
           if (!active) return;
           if (hasSession) {
+            const account = await currentAccount();
             const inventory = await loadRemoteInventory();
+            const cached = await AsyncStorage.getItem(accountStateKey(account.id));
             if (!active) return;
-            setState((current) => ({ ...current, inventory }));
+            setState(restoreAccountState(cached, createInitialState(new Date(), account.kind === "guest"), inventory));
+            setAccountKind(account.kind);
+            setAccountId(account.id);
             setLoggedIn(true);
           } else {
             setLoggedIn(false);
           }
-        } else if (active && stored) {
-          setLoggedIn(Boolean(stored.loggedIn));
+        } else {
+          const raw = await AsyncStorage.getItem("naengtalk-local-validation-v1");
+          const stored = raw ? JSON.parse(raw) : null;
+          if (active && stored?.state) setState({ ...createInitialState(), ...stored.state });
+          if (active && stored) setLoggedIn(Boolean(stored.loggedIn));
         }
       } catch {
         if (active) {
@@ -253,12 +265,18 @@ export default function NaengTalk() {
     };
   }, []);
   useEffect(() => {
-    if (ready)
+    if (ready && backendConfig.mode === "local")
       AsyncStorage.setItem(
         "naengtalk-local-validation-v1",
         JSON.stringify({ state, loggedIn }),
       ).catch(() => setError("저장 공간을 확인해주세요."));
   }, [state, loggedIn, ready]);
+  useEffect(() => {
+    if (ready && backendConfig.mode === "supabase" && accountId && loggedIn) {
+      AsyncStorage.setItem(accountStateKey(accountId), serializeAccountState(state))
+        .catch(() => setError("저장 공간을 확인해주세요."));
+    }
+  }, [state, loggedIn, accountId, ready]);
   useEffect(() => {
     const id = setInterval(() => setNow(Date.now()), 500);
     return () => clearInterval(id);
@@ -270,13 +288,38 @@ export default function NaengTalk() {
     try {
       if (backendConfig.mode === "supabase") {
         await signInGuest();
+        const account = await currentAccount();
         const inventory = await loadRemoteInventory();
-        setState((current) => ({ ...current, inventory }));
+        const cached = await AsyncStorage.getItem(accountStateKey(account.id));
+        setState(restoreAccountState(cached, createInitialState(), inventory));
+        setAccountId(account.id);
       }
       setLoggedIn(true);
+      setAccountKind("guest");
     } catch {
       setLoggedIn(false);
       setError("게스트 로그인에 실패했습니다. 잠시 후 다시 시도해주세요.");
+    } finally {
+      setAuthBusy(false);
+    }
+  };
+  const handleGoogleLogin = async () => {
+    if (authBusy) return;
+    setAuthBusy(true);
+    setError("");
+    try {
+      await signInGoogle();
+      if (Platform.OS === "web") return;
+      const account = await currentAccount();
+      const inventory = await loadRemoteInventory();
+      const cached = await AsyncStorage.getItem(accountStateKey(account.id));
+      setState(restoreAccountState(cached, createInitialState(new Date(), false), inventory));
+      setAccountId(account.id);
+      setAccountKind("user");
+      setLoggedIn(true);
+    } catch (failure) {
+      if (failure instanceof Error && failure.message === "GOOGLE_LOGIN_CANCELLED") return;
+      setError("Google 로그인에 실패했습니다. 잠시 후 다시 시도해주세요.");
     } finally {
       setAuthBusy(false);
     }
@@ -290,11 +333,43 @@ export default function NaengTalk() {
       setState(createInitialState());
       setShareConsentVisible(false);
       setLoggedIn(false);
+      setAccountKind(null);
+      setAccountId(null);
       setTab(0);
     } catch {
       setError("로그아웃하지 못했습니다. 다시 시도해주세요.");
     } finally {
       setAuthBusy(false);
+    }
+  };
+  const handleDeleteAccount = () => {
+    if (authBusy || !accountId || backendConfig.mode !== "supabase") return;
+    const remove = async () => {
+      setAuthBusy(true);
+      setError("");
+      try {
+        await deleteAccount();
+        await AsyncStorage.removeItem(accountStateKey(accountId));
+        setState(createInitialState());
+        setShareConsentVisible(false);
+        setLoggedIn(false);
+        setAccountKind(null);
+        setAccountId(null);
+        setTab(0);
+      } catch {
+        setError("계정을 삭제하지 못했습니다. 잠시 후 다시 시도해주세요.");
+      } finally {
+        setAuthBusy(false);
+      }
+    };
+    const message = "계정과 재고·레시피·공유 레시피를 영구 삭제합니다. 계속할까요?";
+    if (Platform.OS === "web") {
+      if (window.confirm(message)) void remove();
+    } else {
+      Alert.alert("계정 삭제", message, [
+        { text: "취소", style: "cancel" },
+        { text: "삭제", style: "destructive", onPress: () => void remove() },
+      ]);
     }
   };
   const handleResetDemo = async () => {
@@ -693,11 +768,16 @@ export default function NaengTalk() {
           <LoginScreen
             busy={authBusy}
             error={error}
-            statusText={backendConfig.mode === "local"
+            showGuest={availableLoginMethods(Platform.OS).guest}
+            statusText={backendConfig.mode === "local" && Platform.OS === "web"
               ? "개발 검증 모드입니다. 현재 게스트 버튼은 기기 내 샘플을 열며 실제 익명 인증·AI는 아직 연결되지 않았습니다."
-              : "게스트마다 독립된 원격 재고를 생성하고 로그인 상태를 안전하게 복원합니다."}
+              : backendConfig.mode === "local"
+                ? "앱 로그인을 사용하려면 Supabase 연결 설정이 필요합니다."
+              : Platform.OS === "web"
+                ? "게스트마다 독립된 원격 재고를 생성하고 로그인 상태를 안전하게 복원합니다."
+                : "Google 계정으로 로그인해 내 재고를 관리합니다."}
             onGuestLogin={() => void handleGuestLogin()}
-            onGoogleLogin={() => setError("Google 로그인은 Supabase 연결 후 사용할 수 있습니다.")}
+            onGoogleLogin={() => void handleGoogleLogin()}
           />
         ) : (
           <>
@@ -784,6 +864,9 @@ export default function NaengTalk() {
                   allergens={state.allergens}
                   allergenInput={input}
                   busy={authBusy}
+                  error={error}
+                  showResetDemo={accountKind === "guest" || backendConfig.mode === "local"}
+                  showDeleteAccount={backendConfig.mode === "supabase" && Boolean(accountId)}
                   onChangeAllergenInput={setInput}
                   onAddAllergen={() => {
                     const allergen = input.trim();
@@ -797,10 +880,12 @@ export default function NaengTalk() {
                   })}
                   onResetDemo={() => void handleResetDemo()}
                   onLogout={() => void handleLogout()}
+                  onDeleteAccount={handleDeleteAccount}
                 />
               )}
               </ScrollView>
             )}
+            <AdBanner visible={tab === 0 || tab === 2 || tab === 3} />
             <BottomNavigation
               tab={tab}
               scale={appCanvas.scale}

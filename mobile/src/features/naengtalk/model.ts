@@ -20,16 +20,16 @@ export type LocalState = CookingState & {
   recipe: MenuRecipe | null;
 };
 
-export function createInitialState(now = new Date()): LocalState {
+export function createInitialState(now = new Date(), isGuest = true): LocalState {
   const date = now.toISOString().slice(0, 10);
   return {
-    inventory: createGuestInventory(date),
+    inventory: isGuest ? createGuestInventory(date) : [],
     completedSessionIds: [],
     providedAt: date,
     saved: false,
     ...newProposalSharingState(),
-    tools: createGuestTools(),
-    allergens: ["새우"],
+    tools: isGuest ? createGuestTools() : [],
+    allergens: isGuest ? ["새우"] : [],
     timer: null,
     chat: [],
     recipe: backendConfig.mode === "local" ? sampleRecipe : null,

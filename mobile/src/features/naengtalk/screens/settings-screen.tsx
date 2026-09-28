@@ -8,22 +8,30 @@ export type SettingsScreenProps = {
   allergens: string[];
   allergenInput: string;
   busy: boolean;
+  error: string;
+  showResetDemo: boolean;
+  showDeleteAccount: boolean;
   onChangeAllergenInput: (value: string) => void;
   onAddAllergen: () => void;
   onRemoveAllergen: (allergen: string) => void;
   onResetDemo: () => void;
   onLogout: () => void;
+  onDeleteAccount: () => void;
 };
 
 export function SettingsScreen({
   allergens,
   allergenInput,
   busy,
+  error,
+  showResetDemo,
+  showDeleteAccount,
   onChangeAllergenInput,
   onAddAllergen,
   onRemoveAllergen,
   onResetDemo,
   onLogout,
+  onDeleteAccount,
 }: SettingsScreenProps) {
   return (
     <>
@@ -52,8 +60,10 @@ export function SettingsScreen({
           </View>
         )) : <Text style={s.muted}>등록된 알레르기 없음</Text>}
       </View>
-      <AppButton secondary onPress={onResetDemo}>{busy ? "초기화 중…" : "샘플 데이터 초기화"}</AppButton>
+      {showResetDemo && <AppButton secondary onPress={onResetDemo}>{busy ? "초기화 중…" : "샘플 데이터 초기화"}</AppButton>}
       <AppButton secondary onPress={onLogout}>{busy ? "로그아웃 중…" : "로그아웃"}</AppButton>
+      {showDeleteAccount && <AppButton secondary onPress={onDeleteAccount}>계정 및 데이터 삭제</AppButton>}
+      {error ? <Text style={{ color: "#b91c1c" }}>{error}</Text> : null}
     </>
   );
 }

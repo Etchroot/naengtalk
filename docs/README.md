@@ -11,6 +11,7 @@
 | [WORKING_RULES.md](./WORKING_RULES.md) | 디자인·문서·제출·보안·품질의 상세 작업 방식 | 작업 절차가 바뀔 때 |
 | [HACKATHON_RULES.md](./HACKATHON_RULES.md) | 일정, 제출 조건, 심사 기준, 라이선스 | 공식 안내 변경 또는 제출 직전 |
 | [CODEX_SKILL_USAGE.md](./CODEX_SKILL_USAGE.md) | 앱 개발용 `AGENTS.md` 관리 스킬의 설치·호출·적용 방법 | 스킬 동작·설치 위치가 바뀔 때 |
+| [GOOGLE_PLAY_RELEASE.md](./GOOGLE_PLAY_RELEASE.md) | Android 공개 출시·계정·광고·정책·검증 게이트 | Play 출시 준비가 바뀔 때 |
 
 저장소 루트의 관련 문서:
 
