@@ -10,6 +10,18 @@ const tofuItem = {
   storageMethod: 'refrigerated', packageState: 'unopened', internalNote: null,
 };
 
+test('review dates entered as eight digits or a missing separator can be corrected without typing hyphens', () => {
+  const [row] = review.buildPurchaseReviewRows([{ sourceId: 'direct', items: [tofuItem] }]);
+  for (const value of ['20261010', '2026-1010', '2026-10-10']) {
+    const edited = review.updatePurchaseReviewRow(row, { useByDate: value }, '2026-10-03');
+    assert.equal(edited.useByDate, '2026-10-10');
+    assert.equal(edited.needsReview, false);
+    assert.equal(review.toInventoryImportPayload([edited], '2026-10-03')[0].use_by_at, '2026-10-10');
+  }
+  const invalid = review.updatePurchaseReviewRow(row, { useByDate: '20260231' }, '2026-01-01');
+  assert.equal(invalid.needsReview, true);
+});
+
 test('purchase image selections are deduplicated and capped at ten', () => {
   const mergePurchaseSelections = Reflect.get(review, 'mergePurchaseSelections');
   assert.equal(typeof mergePurchaseSelections, 'function');

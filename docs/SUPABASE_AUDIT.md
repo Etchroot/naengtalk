@@ -1,6 +1,7 @@
 # Supabase 점검 기록
 
-- 점검일: 2026-09-28
+- 최초 점검일: 2026-09-28
+- 최근 배포 후속 점검일: 2026-10-11
 - 프로젝트: `naengtalk`
 - 프로젝트 ref: `ygdbvbjvnnoxyjeidnnj`
 - 방식: Supabase CLI·제한된 SQL의 읽기 전용 구조 점검과 격리된 익명 게스트 스모크
@@ -10,9 +11,9 @@
 
 원격 프로젝트는 `ACTIVE_HEALTHY` 상태이며 로컬 migration과 원격 migration 이력은 일치했다. 데이터베이스 lint에서 schema 오류가 없었고, 핵심 Edge Function 세 개가 JWT 검증을 켠 채 활성 상태였다. 공공 레시피 적재 수량도 기대값과 일치했다.
 
-익명 게스트·재고 격리·채팅 재고 변경·소비기한·레시피 생성·요리 완료 원격 스모크는 통과했다. 점검 중 `menu-chat` v12에서 공공 후보가 알레르기 검사에 걸리면 다음 후보로 넘어가지 않고 간헐적으로 502를 반환하는 결함을 발견했다. 알레르기 거절도 재시도 가능한 후보 실패로 처리하도록 수정해 v13으로 배포했고, production 메뉴 스모크를 반복 실행해 안전 후보 반환과 구매 0개 우선 계약을 다시 확인했다.
+익명 게스트·재고 격리·채팅 재고 변경·소비기한·레시피 생성·요리 완료 원격 스모크는 통과했다. 점검 중 `menu-chat` v12에서 공공 후보가 알레르기 검사에 걸리면 다음 후보로 넘어가지 않고 간헐적으로 502를 반환하는 결함을 발견했다. 알레르기 거절도 재시도 가능한 후보 실패로 처리하도록 수정해 v13으로 배포했고, 2026-10-11 레시피 필수 재료·최대 1회 재작성·영구 관측을 포함한 v14를 배포해 두부·대파 요청과 trace 적재를 확인했다.
 
-이번 점검에서는 migration·함수·기존 사용자 데이터를 수정하지 않았다. 원격 동작 검증에는 새 익명 게스트의 격리된 테스트 데이터를 사용했고, 테스트용 인증 사용자는 스크립트 종료 시 정리했다. 사용량이 아직 적어 scan 수가 0인 검색 인덱스는 향후 재료 조합 검색 경로에 필요하므로 삭제하지 않았다.
+최초 2026-09-28 점검에서는 migration·함수·기존 사용자 데이터를 수정하지 않았다. 2026-10-11 후속 점검에서는 승인된 `202609280001_delete_shared_recipes_with_account.sql`, `202610110001_ai_request_observability.sql`과 `menu-chat` v14만 production에 적용했다. 원격 스모크는 격리된 익명 게스트를 사용했고 비밀정보·대화 원문은 기록하지 않았다. 사용량이 아직 적어 scan 수가 0인 검색 인덱스는 향후 구조화 재료 검색 경로에 필요하므로 삭제하지 않았다.
 
 ## 점검 결과
 
@@ -21,19 +22,29 @@
 | 항목 | 결과 |
 | --- | --- |
 | 프로젝트 상태 | `ACTIVE_HEALTHY` |
-| 로컬/원격 migration | 23개 일치 |
-| migration 범위 | `202609080001` ~ `202609210003` |
+| 로컬/원격 migration | 25개 일치 |
+| migration 범위 | `202609080001` ~ `202610110001` |
 | DB lint | warning 수준 schema 오류 없음 |
 
 ### Edge Functions
 
 | 함수 | 배포 버전 | 상태 | JWT 검증 |
 | --- | ---: | --- | --- |
-| `menu-chat` | 13 | ACTIVE | true |
+| `menu-chat` | 14 | ACTIVE | true |
 | `purchase-ocr` | 7 | ACTIVE | true |
-| `inventory-parse` | 8 | ACTIVE | true |
+| `inventory-parse` | 9 | ACTIVE | true |
 
 OpenAI secret은 Supabase 서버 환경에서만 사용하며 클라이언트·Git·문서에 값을 기록하지 않는다.
+
+### 2026-10-11 관측 배포 확인
+
+| 항목 | 결과 |
+| --- | --- |
+| 관측 migration | `202610110001_ai_request_observability.sql` 원격 적용 |
+| trace 테이블 | `observability.ai_request_traces` 생성, 스모크 요청 뒤 추정 행 수 1 |
+| 일별 집계 | `observability.ai_request_daily_metrics` 생성, 다음 날 첫 요청 후 검증 대기 |
+| 권한 경계 | 앱 역할 직접 권한 없음, service-role 기록 RPC만 허용 |
+| DB lint | `extensions`, `observability`, `public`, `recipe_catalog` schema 오류 0 |
 
 ### 핵심 테이블 수량
 

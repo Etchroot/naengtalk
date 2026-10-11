@@ -1,6 +1,7 @@
 import React, { useEffect, useMemo, useRef, useState } from "react";
 import {
   Alert,
+  Keyboard,
   Platform,
   Pressable,
   ScrollView,
@@ -9,11 +10,15 @@ import {
 } from "react-native";
 import { SafeAreaView, useSafeAreaInsets } from "react-native-safe-area-context";
 import AsyncStorage from "@react-native-async-storage/async-storage";
+import { useLocales } from "expo-localization";
 import { Text } from "../components/app-text.tsx";
+import { resolvePreferredLocale, type AppLocale } from "../i18n/locale.ts";
+import { createLocalePreferenceStore } from "../i18n/preference.ts";
+import { translate } from "../i18n/translate.ts";
 import {
   Timer,
 } from "lucide-react-native";
-import { completeCooking, remainingSeconds } from "../domain/cooking.ts";
+import { completeCooking, remainingSeconds, type InventoryItem } from "../domain/cooking.ts";
 import { resetGuestDemoInventory } from "../domain/guest-demo.ts";
 import {
   getCompactHeaderMetrics,
@@ -31,6 +36,7 @@ import {
   type InventorySortMode,
 } from "../domain/inventory-presentation.ts";
 import { getLocalTodayPresentation } from "../domain/date-presentation.ts";
+import { getChatKeyboardHeight } from "../domain/chat-keyboard-frame.ts";
 import {
   getChatComposerLayout,
   getKeyboardAwareWebFrame,
@@ -55,7 +61,8 @@ import {
   signInGuest,
   signOutSession,
 } from "../services/auth.ts";
-import { loadRemoteInventory } from "../services/remote-inventory.ts";
+import { loadRemoteInventory, writeRemoteInventory } from "../services/remote-inventory.ts";
+import { validateInventoryEditDraft, type InventoryEditDraft } from "../domain/inventory-edit.ts";
 import { completeRemoteCooking } from "../services/remote-cooking.ts";
 import { shareCompletedAiRecipe } from "../services/remote-cooking.ts";
 import { canShareRecipe, newProposalSharingState, shareAfterCompletion } from "../domain/recipe-sharing.ts";
@@ -105,6 +112,8 @@ import { OverdrawConfirmModal } from "./naengtalk/modals/overdraw-confirm-modal.
 import { ShareConsentModal } from "./naengtalk/modals/share-consent-modal.tsx";
 import { InventorySortModal } from "./naengtalk/modals/inventory-sort-modal.tsx";
 import { PurchaseRegistrationModal } from "./naengtalk/modals/purchase-registration-modal.tsx";
+import { InventoryEditModal } from "./naengtalk/modals/inventory-edit-modal.tsx";
+import { AppUpdateControl, type AppUpdateHandle } from "./naengtalk/components/app-update-control";
 
 const titles = [
   "냉톡",
@@ -115,10 +124,13 @@ const titles = [
   "설정",
 ];
 export default function NaengTalk() {
+  const deviceLocale = resolvePreferredLocale(useLocales().map((item) => item.languageTag));
   const viewport = useWindowDimensions();
   const safeAreaInsets = useSafeAreaInsets();
   const [state, setState] = useState<LocalState>(createInitialState);
   const [ready, setReady] = useState(false);
+  const [locale, setLocale] = useState<AppLocale>(deviceLocale);
+  const [languageBusy, setLanguageBusy] = useState(false);
   const [loggedIn, setLoggedIn] = useState(false);
   const [accountKind, setAccountKind] = useState<"guest" | "user" | null>(null);
   const [accountId, setAccountId] = useState<string | null>(null);
@@ -131,6 +143,10 @@ export default function NaengTalk() {
   const [direct, setDirect] = useState(false);
   const [purchasePicker, setPurchasePicker] = useState(false);
   const [purchaseBusy, setPurchaseBusy] = useState(false);
+  const [inventoryEdit, setInventoryEdit] = useState<InventoryItem | null>(null);
+  const [inventoryEditBusy, setInventoryEditBusy] = useState(false);
+  const [inventoryEditError, setInventoryEditError] = useState("");
+  const inventoryWriteLock = useRef(false);
   const [purchaseSelections, setPurchaseSelections] = useState<PurchaseSelection[]>([]);
   const [purchaseRows, setPurchaseRows] = useState<PurchaseReviewRow[]>([]);
   const [purchaseFailures, setPurchaseFailures] = useState<Array<{ id: string; label: string; error: string }>>([]);
@@ -145,6 +161,22 @@ export default function NaengTalk() {
   } | null>(null);
   const [input, setInput] = useState("");
   const [chatInputFocused, setChatInputFocused] = useState(false);
+  const [keyboardTop, setKeyboardTop] = useState<number | null>(null);
+  const [canvasTop, setCanvasTop] = useState(safeAreaInsets.top);
+  const canvasViewport = useRef<View>(null);
+  const measureCanvasTop = () => {
+    canvasViewport.current?.measureInWindow((_x, y) => setCanvasTop(y));
+  };
+  useEffect(() => {
+    if (Platform.OS === "web") return;
+    const show = Keyboard.addListener("keyboardDidShow", (event) => {
+      setKeyboardTop(event.endCoordinates.screenY);
+      measureCanvasTop();
+    });
+    const hide = Keyboard.addListener("keyboardDidHide", () => setKeyboardTop(null));
+    return () => { show.remove(); hide.remove(); };
+  }, []);
+  const chatKeyboardOpen = Platform.OS !== "web" && tab === 1 && keyboardTop !== null;
   const [aiBusy, setAiBusy] = useState(false);
   const [shareConsentVisible, setShareConsentVisible] = useState(false);
   const [shareBusy, setShareBusy] = useState(false);
@@ -154,6 +186,9 @@ export default function NaengTalk() {
     useState<InventorySortMode>("expiry");
   const [sortMenu, setSortMenu] = useState(false);
   const lock = useRef(false);
+  const appUpdate = useRef<AppUpdateHandle>(null);
+  const languageSaveLock = useRef(false);
+  const localeRevision = useRef(0);
   const stableWebViewport = useRef({ width: viewport.width, height: viewport.height });
   const chatBlurTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
   if (Platform.OS === "web" && !chatInputFocused) {
@@ -168,9 +203,16 @@ export default function NaengTalk() {
     ? webFrameState.frame
     : {
         width: Math.max(0, viewport.width - safeAreaInsets.left - safeAreaInsets.right),
-        height: Math.max(0, viewport.height - safeAreaInsets.top - safeAreaInsets.bottom),
+        height: getChatKeyboardHeight(
+          Math.max(0, viewport.height - safeAreaInsets.top - safeAreaInsets.bottom),
+          chatKeyboardOpen ? keyboardTop : null,
+          canvasTop,
+          // Android measureInWindow removes the visible window's top inset,
+          // while keyboard screenY retains screen coordinates.
+          Platform.OS === "android" ? safeAreaInsets.top : 0,
+        ),
       };
-  const appCanvas = getResponsiveAppCanvas(frame.width, frame.height);
+  const appCanvas = getResponsiveAppCanvas(frame.width, frame.height, Platform.OS);
   const chatComposerLayout = getChatComposerLayout(appCanvas.designWidth);
   const compactHeader = getCompactHeaderMetrics();
   const today = getLocalTodayPresentation();
@@ -229,6 +271,8 @@ export default function NaengTalk() {
     let active = true;
     const initialize = async () => {
       try {
+        const savedLocale = await createLocalePreferenceStore(AsyncStorage, () => deviceLocale).load();
+        if (active) setLocale(savedLocale);
         if (backendConfig.mode === "supabase") {
           const hasSession = await restoreRemoteSession();
           if (!active) return;
@@ -265,6 +309,14 @@ export default function NaengTalk() {
     };
   }, []);
   useEffect(() => {
+    if (!ready || languageBusy) return;
+    let active = true;
+    const revision = localeRevision.current;
+    void createLocalePreferenceStore(AsyncStorage, () => deviceLocale).load()
+      .then((nextLocale) => { if (active && revision === localeRevision.current) setLocale(nextLocale); });
+    return () => { active = false; };
+  }, [deviceLocale, ready, languageBusy]);
+  useEffect(() => {
     if (ready && backendConfig.mode === "local")
       AsyncStorage.setItem(
         "naengtalk-local-validation-v1",
@@ -281,6 +333,23 @@ export default function NaengTalk() {
     const id = setInterval(() => setNow(Date.now()), 500);
     return () => clearInterval(id);
   }, []);
+  const handleLocaleChange = async (nextLocale: AppLocale) => {
+    if (languageSaveLock.current || nextLocale === locale) return;
+    languageSaveLock.current = true;
+    localeRevision.current += 1;
+    setLanguageBusy(true);
+    const previousLocale = locale;
+    setLocale(nextLocale);
+    try {
+      await createLocalePreferenceStore(AsyncStorage, () => deviceLocale).save(nextLocale);
+    } catch {
+      setLocale(previousLocale);
+      setError(translate(previousLocale, 'language.saveFailed'));
+    } finally {
+      languageSaveLock.current = false;
+      setLanguageBusy(false);
+    }
+  };
   const handleGuestLogin = async () => {
     if (authBusy) return;
     setAuthBusy(true);
@@ -521,6 +590,44 @@ export default function NaengTalk() {
       setPurchaseBusy(false);
     }
   };
+  const handleInventoryWrite = async (draft: InventoryEditDraft | null) => {
+    if (!inventoryEdit || inventoryWriteLock.current) return;
+    const target = inventoryEdit;
+    inventoryWriteLock.current = true;
+    setInventoryEditBusy(true);
+    setInventoryEditError("");
+    try {
+      if (backendConfig.mode !== "supabase") throw new Error("DB 연결이 필요합니다. 연결된 계정으로 로그인해주세요.");
+      const value = draft ? validateInventoryEditDraft(draft) : null;
+      await writeRemoteInventory(target, draft);
+      // Reflect only a confirmed server write. Keep it visible if the subsequent refresh loses its connection.
+      setState((current) => ({...current, inventory: value
+        ? current.inventory.map((item) => item.lotId === target.lotId ? {...item,
+          id: value.name === target.name ? target.id : normalizedIngredientKey(value.name),
+          name: value.name, quantity: value.quantity, unit: value.unit,
+          useBy: value.useByDate, storageMethod: value.storageMethod,
+          estimated: value.useByDate === target.useBy ? target.estimated : false,
+        } : item)
+        : current.inventory.filter((item) => item.lotId !== target.lotId)}));
+      try {
+        const inventory = await loadRemoteInventory();
+        setState((current) => ({...current, inventory}));
+        setError("");
+      } catch {
+        setError("DB에 변경을 저장했습니다. 최신 목록을 다시 불러오지 못했으니 연결 후 앱을 다시 실행해주세요.");
+      }
+      setInventoryEdit(null);
+    } catch (e) {
+      setInventoryEditError((e as Error).message);
+      try {
+        const inventory = await loadRemoteInventory();
+        setState((current) => ({...current, inventory}));
+      } catch { /* Preserve the original draft and show the failed write. */ }
+    } finally {
+      inventoryWriteLock.current = false;
+      setInventoryEditBusy(false);
+    }
+  };
   const openRecipe = () => {
     if (!state.recipe) return;
     setSession(`local-${Date.now()}-${Math.random()}`);
@@ -756,26 +863,30 @@ export default function NaengTalk() {
   if (!ready)
     return (
       <View style={s.stage}>
-        <Text style={s.text}>냉톡을 준비하고 있어요.</Text>
+        <Text style={s.text}>{translate(locale, 'app.preparing')}</Text>
       </View>
     );
   return (
+    <>
     <View style={stageStyle}>
       <SafeAreaView style={safeAreaStyle}>
-        <View style={appViewportStyle}>
+        <View ref={canvasViewport} onLayout={Platform.OS === "web" ? undefined : measureCanvasTop} style={appViewportStyle}>
           <View style={appFrameStyle}>
         {!loggedIn ? (
           <LoginScreen
             busy={authBusy}
             error={error}
             showGuest={availableLoginMethods(Platform.OS).guest}
-            statusText={backendConfig.mode === "local" && Platform.OS === "web"
-              ? "개발 검증 모드입니다. 현재 게스트 버튼은 기기 내 샘플을 열며 실제 익명 인증·AI는 아직 연결되지 않았습니다."
+            locale={locale}
+            languageBusy={languageBusy}
+            onChangeLocale={(nextLocale) => void handleLocaleChange(nextLocale)}
+            statusText={translate(locale, backendConfig.mode === "local" && Platform.OS === "web"
+              ? 'login.status.localWeb'
               : backendConfig.mode === "local"
-                ? "앱 로그인을 사용하려면 Supabase 연결 설정이 필요합니다."
+                ? 'login.status.localNative'
               : Platform.OS === "web"
-                ? "게스트마다 독립된 원격 재고를 생성하고 로그인 상태를 안전하게 복원합니다."
-                : "Google 계정으로 로그인해 내 재고를 관리합니다."}
+                ? 'login.status.remoteWeb'
+                : 'login.status.remoteNative')}
             onGuestLogin={() => void handleGuestLogin()}
             onGoogleLogin={() => void handleGoogleLogin()}
           />
@@ -787,6 +898,7 @@ export default function NaengTalk() {
               onHome={() => setTab(0)}
               scale={appCanvas.scale}
             />
+            <AdBanner visible={tab === 0 || tab === 2 || tab === 3} />
             {timer}
             {tab === 1 ? (
               <ChatScreen
@@ -810,7 +922,7 @@ export default function NaengTalk() {
               />
             ) : (
               <ScrollView
-                scrollEnabled={tab !== 0}
+                scrollEnabled={tab !== 0 || Platform.OS !== "web"}
                 showsVerticalScrollIndicator={false}
                 contentContainerStyle={s.content}
               >
@@ -826,6 +938,8 @@ export default function NaengTalk() {
               )}
               {tab === 2 && (
                 <InventoryScreen
+                  error={error}
+                  onEdit={(item) => {setInventoryEditError(""); setInventoryEdit(item);}}
                   inventory={visibleInventory}
                   sortMode={inventorySort}
                   todayKey={today.key}
@@ -865,6 +979,9 @@ export default function NaengTalk() {
                   allergenInput={input}
                   busy={authBusy}
                   error={error}
+                  locale={locale}
+                  languageBusy={languageBusy}
+                  onChangeLocale={(nextLocale) => void handleLocaleChange(nextLocale)}
                   showResetDemo={accountKind === "guest" || backendConfig.mode === "local"}
                   showDeleteAccount={backendConfig.mode === "supabase" && Boolean(accountId)}
                   onChangeAllergenInput={setInput}
@@ -881,19 +998,19 @@ export default function NaengTalk() {
                   onResetDemo={() => void handleResetDemo()}
                   onLogout={() => void handleLogout()}
                   onDeleteAccount={handleDeleteAccount}
+                  onCheckUpdate={Platform.OS === "web" ? undefined : () => appUpdate.current?.check()}
                 />
               )}
               </ScrollView>
             )}
-            <AdBanner visible={tab === 0 || tab === 2 || tab === 3} />
-            <BottomNavigation
+            {!chatKeyboardOpen && <BottomNavigation
               tab={tab}
               scale={appCanvas.scale}
               onSelect={(nextTab) => {
                 setTab(nextTab);
                 setInput("");
               }}
-            />
+            />}
           </>
         )}
         <ChatInventoryReviewModal
@@ -991,6 +1108,12 @@ export default function NaengTalk() {
             setSortMenu(false);
           }}
         />
+
+          </View>
+        </View>
+      </SafeAreaView>
+    </View>
+    {/* Keep the native dialog outside the scaled and centered app canvas. */}
         <PurchaseRegistrationModal
           visible={registration}
           direct={direct}
@@ -1003,7 +1126,7 @@ export default function NaengTalk() {
           progress={purchaseProgress}
           error={error}
           samples={purchaseDemoAssets}
-          onClose={closeRegistration}
+          onClose={() => { if (!purchaseBusy) closeRegistration(); }}
           onChangeDirectInput={setDirectInput}
           onAnalyzeDirect={() => void handleAnalyzeDirectInventory()}
           onChangeRow={(id, patch) => setPurchaseRows((current) => current.map((item) => (
@@ -1023,11 +1146,15 @@ export default function NaengTalk() {
           onAnalyze={() => void handleAnalyzePurchases()}
           onPickImages={() => void handlePickPurchaseImages()}
           onOpenPicker={() => { setPurchasePicker(true); setError(""); }}
-          onOpenDirect={() => setDirect(true)}
+          onOpenDirect={() => { setDirect(true); setPurchasePicker(false); setPurchaseSelections([]); setPurchaseRows([]); setPurchaseFailures([]); setError(""); }}
         />
-          </View>
-        </View>
-      </SafeAreaView>
-    </View>
+      <AppUpdateControl
+        ref={appUpdate}
+        canPrompt={ready && !inventoryEdit && !registration && !detail && !review && !sortMenu && overdraw === null && !shareConsentVisible && !chatInventoryRows.length && !authBusy && !aiBusy && !chatInputFocused && !input.trim() && !directInput.trim()}
+      />
+      <InventoryEditModal item={inventoryEdit} busy={inventoryEditBusy} error={inventoryEditError}
+        onClose={() => {if (!inventoryWriteLock.current) setInventoryEdit(null);}}
+        onSave={(draft) => void handleInventoryWrite(draft)} onDelete={() => void handleInventoryWrite(null)} />
+    </>
   );
 }

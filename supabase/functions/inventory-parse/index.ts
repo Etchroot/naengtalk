@@ -1,4 +1,5 @@
 import {
+  applyProvidedDates,
   buildInventoryParseOpenAiRequest,
   sanitizeInventoryParseRequest,
 } from '../_shared/inventory-parse-contract.ts';
@@ -60,26 +61,6 @@ async function parseInventoryText(text: string): Promise<Record<string, unknown>
   return parsed as Record<string, unknown>;
 }
 
-function applyProvidedDates(result: Record<string, unknown>, baseDate: string): Record<string, unknown> {
-  const items = Array.isArray(result.items) ? result.items : [];
-  return {
-    ...result,
-    items: items.map((value) => {
-      if (!value || typeof value !== 'object') return value;
-      const item = value as Record<string, unknown>;
-      const providedUseBy = typeof item.providedUseBy === 'string' ? item.providedUseBy : '';
-      if (!/^\d{4}-\d{2}-\d{2}$/.test(providedUseBy) || providedUseBy < baseDate) return item;
-      return {
-        ...item,
-        recommendedUseBy: providedUseBy,
-        shelfLifeStatus: 'cached',
-        needsReview: !item.quantity || !item.unit,
-        internalNote: '사용자가 직접 입력한 소비기한을 적용했습니다.',
-      };
-    }),
-  };
-}
-
 Deno.serve(async (request) => {
   if (request.method === 'OPTIONS') return new Response('ok', { headers: corsHeaders });
   if (request.method !== 'POST') return json(405, { error: 'POST 요청만 지원합니다.' });
@@ -112,7 +93,7 @@ Deno.serve(async (request) => {
       openAiKey,
       baseDate,
     });
-    return json(200, applyProvidedDates(enriched, baseDate));
+    return json(200, applyProvidedDates(enriched, input.text, baseDate));
   } catch (error) {
     const code = (error as Error).message;
     if (code === 'INVALID_TEXT' || error instanceof SyntaxError) {

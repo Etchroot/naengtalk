@@ -67,6 +67,7 @@ export function getChatComposerLayout(frameWidth: number): {
 export function getResponsiveAppCanvas(
   availableWidth: number,
   availableHeight: number,
+  platform = "web",
 ): {
   designWidth: number;
   designHeight: number;
@@ -76,6 +77,16 @@ export function getResponsiveAppCanvas(
 } {
   const safeWidth = Math.max(0, availableWidth);
   const safeHeight = Math.max(0, availableHeight);
+  if (platform !== "web") {
+    const scale = safeWidth / APP_DESIGN_WIDTH;
+    return {
+      designWidth: APP_DESIGN_WIDTH,
+      designHeight: scale > 0 ? safeHeight / scale : 0,
+      scale,
+      renderedWidth: safeWidth,
+      renderedHeight: safeHeight,
+    };
+  }
   const scale = Math.min(
     safeWidth / APP_DESIGN_WIDTH,
     safeHeight / APP_DESIGN_HEIGHT,

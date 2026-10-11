@@ -2,7 +2,7 @@
   "expo": {
     "name": "냉톡",
     "slug": "naengtalk",
-    "version": "1.0.0",
+    "version": "1.0.3",
     "orientation": "portrait",
     "icon": "./assets/images/icon.png",
     "scheme": "naengtalk",
@@ -61,6 +61,7 @@
     },
     "owner": "myunggeon685",
     "updates": {
+      "checkAutomatically": "NEVER",
       "url": "https://u.expo.dev/aa8940b2-b55e-45b5-a345-6e17710cd1cc"
     }
   }

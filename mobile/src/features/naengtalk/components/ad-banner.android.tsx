@@ -2,11 +2,11 @@ import React, { useEffect, useState } from "react";
 import { View } from "react-native";
 import Constants from "expo-constants";
 import mobileAds, {
-  AdsConsent,
   BannerAd,
   BannerAdSize,
   TestIds,
 } from "react-native-google-mobile-ads";
+import { adPrivacyConsent } from "./ad-privacy-consent.android.ts";
 
 type AdBannerProps = { visible: boolean };
 
@@ -19,23 +19,25 @@ export function AdBanner({ visible }: AdBannerProps) {
 
   useEffect(() => {
     let mounted = true;
-    const initialize = async () => {
-      try {
-        await AdsConsent.gatherConsent();
-      } catch {
-        // A previous session's consent may still permit ads.
+    let revision = 0;
+    const applyConsent = async ({ canRequestAds }: { canRequestAds: boolean }) => {
+      const currentRevision = ++revision;
+      if (!canRequestAds) {
+        if (mounted) setReady(false);
+        return;
       }
       try {
-        const { canRequestAds } = await AdsConsent.getConsentInfo();
-        if (!canRequestAds) return;
         await mobileAds().initialize();
-        if (mounted) setReady(true);
+        if (mounted && currentRevision === revision) setReady(true);
       } catch {
-        // Keep ads disabled when the consent state or SDK is unavailable.
+        if (mounted && currentRevision === revision) setReady(false);
       }
     };
-    void initialize();
-    return () => { mounted = false; };
+    const unsubscribe = adPrivacyConsent.subscribe((info) => { void applyConsent(info); });
+    void adPrivacyConsent.initialize().catch(() => {
+      if (mounted) setReady(false);
+    });
+    return () => { mounted = false; unsubscribe(); };
   }, []);
 
   if (!visible || !ready || !unitId) return null;

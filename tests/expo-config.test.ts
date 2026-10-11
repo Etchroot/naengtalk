@@ -13,7 +13,9 @@ const easConfig = JSON.parse(
 test('Android has a stable Play package and separate device and store artifacts', () => {
   assert.equal(appConfig.expo.android.package, 'com.naengtalk.app');
   assert.equal(easConfig.build.preview.distribution, 'internal');
+  assert.equal(easConfig.build.preview.environment, 'preview');
   assert.equal(easConfig.build.preview.android.buildType, 'apk');
+  assert.equal(easConfig.build.production.environment, 'production');
   assert.equal(easConfig.build.production.android.buildType, 'app-bundle');
 });
 

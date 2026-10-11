@@ -23,7 +23,7 @@ export const s = StyleSheet.create({
     flex: 1,
     width: "100%",
     alignItems: "center",
-    justifyContent: "center",
+    justifyContent: "flex-start",
   },
   appViewport: {
     position: "relative",
@@ -206,11 +206,10 @@ export const s = StyleSheet.create({
   },
   refrigeratorHandle: {
     position: "absolute",
-    alignSelf: "center",
-    left: "20%",
-    width: "60%",
+    left: 0,
+    right: 0,
+    alignItems: "center",
     height: 16,
-    opacity: 0.52,
   },
   refrigeratorHandleTop: { top: -3 },
   refrigeratorHandleBottom: { bottom: -3 },

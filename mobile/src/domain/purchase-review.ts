@@ -130,10 +130,15 @@ export function updatePurchaseReviewRow(
   patch: Partial<Pick<PurchaseReviewRow, 'name' | 'quantityText' | 'useByDate' | 'storageMethod'>>,
   today: string,
 ): PurchaseReviewRow {
+  const dateInput = patch.useByDate?.trim();
+  const digits = dateInput?.replace(/-/g, '') ?? '';
+  const useByDate = dateInput !== undefined && /^\d{4}-?\d{2}-?\d{2}$/.test(dateInput)
+    ? `${digits.slice(0, 4)}-${digits.slice(4, 6)}-${digits.slice(6, 8)}`
+    : patch.useByDate ?? row.useByDate;
   const updated: PurchaseReviewRow = {
     ...row,
     ...patch,
-    useByDate: patch.useByDate ?? row.useByDate,
+    useByDate,
     edited: true,
     useByDateEdited: row.useByDateEdited
       || (patch.useByDate !== undefined && patch.useByDate !== row.useByDate),

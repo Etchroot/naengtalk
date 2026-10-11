@@ -69,3 +69,59 @@ productName에는 각 식품에 대해 사용자가 적은 냉동·냉장 표시
     },
   } as const;
 }
+
+export function applyProvidedDates(result: Record<string, unknown>, text: string, baseDate: string): Record<string, unknown> {
+  const items = Array.isArray(result.items) ? result.items : [];
+  const fullDatePattern = /(?<!\d)(\d{4})(?:\s*[-./]\s*(\d{1,2})\s*[-./]\s*(\d{1,2})|\s*년\s*(\d{1,2})\s*월\s*(\d{1,2})\s*일)(?!\d)/g;
+  const hasExplicitDate = [...text.matchAll(fullDatePattern)].length > 0;
+  // Scope dates using food occurrences in the original input, never model order.
+  const occurrences = items.map((value) => {
+    const name = value && typeof value === 'object'
+      ? (value as Record<string, unknown>).foodName
+      : null;
+    if (typeof name !== 'string' || !name.trim()) return [] as number[];
+    const positions: number[] = [];
+    let position = text.indexOf(name);
+    while (position !== -1) {
+      positions.push(position);
+      position = text.indexOf(name, position + name.length);
+    }
+    return positions;
+  });
+  const starts = occurrences.flat().sort((a, b) => a - b);
+  return {
+    ...result,
+    items: items.map((value, index) => {
+      if (!value || typeof value !== 'object') return value;
+      const item = value as Record<string, unknown>;
+      let providedUseBy = typeof item.providedUseBy === 'string' ? item.providedUseBy : '';
+      if (hasExplicitDate) {
+        const positions = occurrences[index];
+        if (positions.length > 1 || (items.length > 1 && (positions.length !== 1
+          || starts.filter((start) => start === positions[0]).length !== 1))) return item;
+        const start = items.length === 1 ? 0 : positions[0];
+        const end = items.length === 1 ? text.length : starts.find((position) => position > start) ?? text.length;
+        const phrase = text.slice(start, end);
+        const dates = [...phrase.matchAll(fullDatePattern)]
+          .filter((match) => !/(?:구매|구입|제조|생산)\s*일\s*[:：]?\s*$/.test(phrase.slice(0, match.index)))
+          .map((match) => `${match[1]}-${(match[2] ?? match[4]).padStart(2, '0')}-${(match[3] ?? match[5]).padStart(2, '0')}`)
+          .filter((date) => {
+            const parsed = new Date(`${date}T00:00:00.000Z`);
+            return !Number.isNaN(parsed.getTime()) && parsed.toISOString().slice(0, 10) === date;
+          });
+        const uniqueDates = [...new Set(dates)];
+        if (uniqueDates.length !== 1) return item;
+        providedUseBy = uniqueDates[0];
+      }
+      if (!/^\d{4}-\d{2}-\d{2}$/.test(providedUseBy) || providedUseBy < baseDate) return item;
+      return {
+        ...item,
+        providedUseBy,
+        recommendedUseBy: providedUseBy,
+        shelfLifeStatus: 'cached',
+        needsReview: !item.quantity || !item.unit,
+        internalNote: '사용자가 직접 입력한 소비기한을 적용했습니다.',
+      };
+    }),
+  };
+}

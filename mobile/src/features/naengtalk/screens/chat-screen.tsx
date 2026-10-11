@@ -36,7 +36,7 @@ export function ChatScreen({
 }: ChatScreenProps) {
   return (
     <>
-      <ScrollView showsVerticalScrollIndicator={false} contentContainerStyle={s.content}>
+      <ScrollView style={{ flex: 1 }} keyboardShouldPersistTaps="handled" showsVerticalScrollIndicator={false} contentContainerStyle={s.content}>
         <View style={s.card}>
           <Text style={s.text}>
             오늘은 어떤 메뉴가 당기세요? 시간, 맛, 원하는 메뉴를 말하면 현재 재고와 조리도구에 맞춰 한 가지를 추천해드려요.

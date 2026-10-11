@@ -19,6 +19,7 @@ export function mapInventoryLotRows(rows: InventoryLotRow[]): InventoryItem[] {
     }
     return {
       id: row.ingredient_key,
+      lotId: row.id,
       name: row.display_name,
       quantity,
       unit: row.unit,

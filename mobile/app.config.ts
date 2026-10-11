@@ -27,6 +27,7 @@ export default function configureApp({ config }: ConfigContext): ExpoConfig {
     slug: config.slug ?? "naengtalk",
     plugins: [
       ...(config.plugins ?? []),
+      "expo-localization",
       ["react-native-google-mobile-ads", {
         androidAppId,
         delayAppMeasurementInit: true,

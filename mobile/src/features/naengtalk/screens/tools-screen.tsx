@@ -2,7 +2,7 @@ import React from "react";
 import { Pressable, TextInput, View } from "react-native";
 import { Text } from "../../../components/app-text.tsx";
 import { AppButton } from "../components/app-button.tsx";
-import { s } from "../../theme.ts";
+import { color, s } from "../../theme.ts";
 
 export type ToolsScreenProps = {
   tools: string[];
@@ -17,7 +17,7 @@ export type ToolsScreenProps = {
 export function ToolsScreen({ tools, input, cardWidth, cardAspectRatio, onChangeInput, onAddTool, onRemoveTool }: ToolsScreenProps) {
   return (
     <>
-      <TextInput style={s.input} accessibilityLabel="조리도구" placeholder="예: 2.5L 냄비" value={input} onChangeText={onChangeInput} />
+      <TextInput style={s.input} accessibilityLabel="조리도구" placeholder="예: 3L 냄비" placeholderTextColor={color.muted} value={input} onChangeText={onChangeInput} />
       <AppButton onPress={onAddTool}>조리도구 입력</AppButton>
       <View style={s.grid}>
         {tools.map((tool, index) => (

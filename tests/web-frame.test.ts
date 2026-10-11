@@ -92,3 +92,22 @@ test("the complete app canvas scales uniformly instead of reflowing on a small d
     renderedHeight: 456,
   });
 });
+
+test("native app fills safe viewport width and height across different phone aspect ratios", () => {
+  for (const [width, height] of [[360, 714], [412, 915], [390, 740], [320, 568]]) {
+    const canvas = getResponsiveAppCanvas(width, height, 'android');
+    assert.equal(canvas.renderedWidth, width);
+    assert.equal(canvas.renderedHeight, height);
+    assert.equal(canvas.scale, width / 360);
+    assert.ok(Math.abs(canvas.designHeight * canvas.scale - height) < 0.001);
+  }
+});
+
+test("native keyboard resize changes height without shrinking the app width or scale", () => {
+  const full = getResponsiveAppCanvas(412, 850, 'android');
+  const keyboard = getResponsiveAppCanvas(412, 490, 'android');
+  assert.equal(keyboard.renderedWidth, 412);
+  assert.equal(keyboard.renderedHeight, 490);
+  assert.equal(keyboard.scale, full.scale);
+  assert.equal(getResponsiveAppCanvas(0, 0, 'android').scale, 0);
+});

@@ -1,0 +1,34 @@
+import test from 'node:test';
+import assert from 'node:assert/strict';
+const module = await import('../mobile/src/services/inventory-write.ts').catch(() => ({}));
+const item = {id:'egg',lotId:'lot-2',name:'계란',quantity:6,unit:'개',useBy:'2026-10-10',estimated:true,storageMethod:'refrigerated'};
+const draft = {name:'달걀',quantityText:'4',unit:'개',useByDate:'2026-10-12',storageMethod:'refrigerated'};
+test('inventory edits target a specific owned lot, compare the original values, and preserve estimates unless the date changes', async () => {
+  const persist = Reflect.get(module, 'persistInventoryWrite');
+  assert.equal(typeof persist,'function');
+  const writes: unknown[] = [];
+  await persist({ownerId:async()=> 'owner-1',write:async(input:unknown)=>{writes.push(input);return true;}}, item, draft);
+  const write = writes[0] as any;
+  assert.equal(write.ownerId,'owner-1');
+  assert.equal(write.lotId,'lot-2');
+  assert.equal(write.expected.quantity,6);
+  assert.equal(write.expected.ingredientKey,'egg');
+  assert.equal(write.patch.quantity,4);
+  assert.equal(write.patch.display_name,'달걀');
+  assert.equal(write.patch.ingredient_key,'ocr-달걀');
+  assert.equal(write.patch.date_source,'user_override');
+  writes.length=0;
+  await persist({ownerId:async()=> 'owner-1',write:async(input:unknown)=>{writes.push(input);return true;}},item,{...draft,useByDate:item.useBy});
+  assert.equal(Object.hasOwn((writes[0] as any).patch,'date_source'),false);
+});
+test('deletion targets only the selected lot; conflicts, write failure and missing identity never succeed', async () => {
+  const persist = Reflect.get(module,'persistInventoryWrite');
+  let writes=0;
+  await persist({ownerId:async()=> 'owner-1',write:async(input:any)=>{writes++;assert.equal(input.lotId,'lot-2');assert.equal(input.patch,null);return true;}},item,null);
+  assert.equal(writes,1);
+  await assert.rejects(()=>persist({ownerId:async()=> 'owner-1',write:async()=>false},item,draft),/변경|삭제/);
+  await assert.rejects(()=>persist({ownerId:async()=> 'owner-1',write:async()=>{throw Error('network');}},item,draft),/network/);
+  const neverWrite={ownerId:async()=>null,write:async()=>{throw Error('must not write');}};
+  await assert.rejects(()=>persist(neverWrite,item,draft),/로그인/);
+  await assert.rejects(()=>persist({...neverWrite,ownerId:async()=> 'owner-1'},{...item,lotId:undefined},draft),/다시/);
+});

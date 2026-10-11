@@ -1,5 +1,5 @@
 import React from "react";
-import { Image } from "react-native";
+import { Image, View } from "react-native";
 import {
   getRefrigeratorHandlePlacement,
   getRefrigeratorHandleScaleY,
@@ -10,16 +10,16 @@ import { s } from "../../theme.ts";
 export function RefrigeratorHandle({ tone }: { tone: RefrigeratorDoorTone }) {
   const placement = getRefrigeratorHandlePlacement(tone);
   return (
-    <Image
-      source={require("../../../../assets/images/refrigerator-handle.png")}
-      resizeMode="stretch"
+    <View pointerEvents="none"
       style={[
         s.refrigeratorHandle,
         placement === "bottom"
           ? s.refrigeratorHandleBottom
           : s.refrigeratorHandleTop,
-        { transform: [{ scaleY: getRefrigeratorHandleScaleY(tone) }] },
       ]}
-    />
+    >
+      <Image source={require("../../../../assets/images/refrigerator-handle.png")} resizeMode="stretch"
+        style={{width:"60%", height:16, opacity:0.52, transform:[{scaleY:getRefrigeratorHandleScaleY(tone)}]}} />
+    </View>
   );
 }
