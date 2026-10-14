@@ -28,6 +28,7 @@ const modalPaths = [
   'share-consent-modal.tsx',
   'inventory-sort-modal.tsx',
   'purchase-registration-modal.tsx',
+  'missing-ingredient-confirm-modal.tsx',
 ].map((name) => new URL(`../mobile/src/features/naengtalk/modals/${name}`, import.meta.url));
 
 test('android foundations remain while expo demo files are absent', () => {
@@ -36,7 +37,7 @@ test('android foundations remain while expo demo files are absent', () => {
 
   assert.equal(pkg.dependencies['expo-secure-store'], '^55.0.18');
   assert.equal(pkg.dependencies['expo-image-picker'], '~55.0.24');
-  assert.equal(pkg.dependencies['expo-updates'], '~55.0.31');
+  assert.equal(pkg.dependencies['expo-updates'], '~55.0.33');
   assert.equal(app.android.runtimeVersion.policy, 'appVersion');
   assert.ok(app.android.adaptiveIcon.foregroundImage);
   assert.equal(existsSync(deadWebBadgePath), false);
@@ -86,4 +87,23 @@ test('modal modules do not call remote services and expose explicit actions', ()
   assert.match(purchaseModalSource, /onRegister/);
   assert.match(recipeModalSource, /onFinishCooking/);
   assert.match(recipeModalSource, /onConfirmShare/);
+  const missingIngredientModalSource = readFileSync(modalPaths[6], 'utf8');
+  assert.match(missingIngredientModalSource, /onCancel/);
+  assert.match(missingIngredientModalSource, /onConfirm/);
+  assert.match(missingIngredientModalSource, /재고에 없/);
+});
+
+test('declining a missing ingredient stays local while confirming sends the one-time ticket', () => {
+  const containerSource = readFileSync(containerPath, 'utf8');
+  const cancelHandler = containerSource.match(
+    /const cancelMissingIngredientRequest = \(\) => \{([\s\S]*?)\n  \};/,
+  )?.[1] ?? '';
+  const confirmHandler = containerSource.match(
+    /const confirmMissingIngredientRequest = async \(\) => \{([\s\S]*?)\n  \};/,
+  )?.[1] ?? '';
+
+  assert.ok(cancelHandler);
+  assert.doesNotMatch(cancelHandler, /sendMenuChat/);
+  assert.match(confirmHandler, /missingIngredientConfirmationTicket/);
+  assert.match(confirmHandler, /sendMenuChat/);
 });

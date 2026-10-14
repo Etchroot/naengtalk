@@ -33,5 +33,6 @@ export const sampleRecipe: MenuRecipe = {
     { ingredientKey: null, name: "물", quantity: 350, unit: "ml", inInventory: false, requiredPurchase: false },
   ],
   steps: sampleSteps,
+  optionalIngredientTip: null,
   sources: [],
 };

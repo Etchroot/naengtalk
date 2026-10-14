@@ -25,7 +25,7 @@ for (const message of process.argv.slice(2).length ? process.argv.slice(2) : ['ì
   const recipe = data?.recipe;
   if (!recipe || !Array.isArray(recipe.ingredients)) throw new Error(`${message}: no recipe returned`);
   const purchases = recipe.ingredients.filter((ingredient) => ingredient.requiredPurchase).length;
-  if (purchases > 1) throw new Error(`${message}: too many purchases (${purchases})`);
+  if (purchases > 0) throw new Error(`${message}: recipe requires a purchase (${purchases})`);
   const result = { message, title: recipe.title, purchases,
     ingredients: recipe.ingredients.map((ingredient) => ingredient.name),
     stepCount: recipe.steps?.length ?? 0 };

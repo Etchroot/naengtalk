@@ -30,6 +30,9 @@ import {
   recipeContextMessage,
   recipeUsage,
   type ChatMessage,
+  type MenuChatRequest,
+  type MenuChatResponse,
+  type MissingIngredientConfirmation,
 } from "../domain/menu-chat.ts";
 import {
   sortInventory,
@@ -110,6 +113,7 @@ import { ChatInventoryReviewModal } from "./naengtalk/modals/chat-inventory-revi
 import { RecipeDetailModal } from "./naengtalk/modals/recipe-detail-modal.tsx";
 import { OverdrawConfirmModal } from "./naengtalk/modals/overdraw-confirm-modal.tsx";
 import { ShareConsentModal } from "./naengtalk/modals/share-consent-modal.tsx";
+import { MissingIngredientConfirmModal } from "./naengtalk/modals/missing-ingredient-confirm-modal.tsx";
 import { InventorySortModal } from "./naengtalk/modals/inventory-sort-modal.tsx";
 import { PurchaseRegistrationModal } from "./naengtalk/modals/purchase-registration-modal.tsx";
 import { InventoryEditModal } from "./naengtalk/modals/inventory-edit-modal.tsx";
@@ -178,6 +182,10 @@ export default function NaengTalk() {
   }, []);
   const chatKeyboardOpen = Platform.OS !== "web" && tab === 1 && keyboardTop !== null;
   const [aiBusy, setAiBusy] = useState(false);
+  const [missingIngredientPending, setMissingIngredientPending] = useState<{
+    confirmation: MissingIngredientConfirmation;
+    request: MenuChatRequest;
+  } | null>(null);
   const [shareConsentVisible, setShareConsentVisible] = useState(false);
   const [shareBusy, setShareBusy] = useState(false);
   const [now, setNow] = useState(Date.now());
@@ -636,6 +644,48 @@ export default function NaengTalk() {
     setUsageDraft([]);
     setDetail(true);
   };
+  const applyRemoteMenuChatResponse = async (
+    response: MenuChatResponse,
+    request: MenuChatRequest,
+  ) => {
+    if (response.missingIngredientConfirmation) {
+      setMissingIngredientPending({
+        confirmation: response.missingIngredientConfirmation,
+        request,
+      });
+      return;
+    }
+    setMissingIngredientPending(null);
+    setState((current) => ({
+      ...current,
+      chat: [...current.chat, { role: "assistant", content: response.reply }],
+      recipe: response.recipe ?? current.recipe,
+      ...(response.recipe ? { saved: false, ...newProposalSharingState() } : {}),
+      providedAt: response.recipe
+        ? new Date().toISOString().slice(0, 10)
+        : current.providedAt,
+    }));
+    if (!response.inventoryChanges.length) return;
+
+    const latestInventory = await loadRemoteInventory();
+    let additionRows: PurchaseReviewRow[] = [];
+    const additions = response.inventoryChanges.filter((change) => change.action === "add");
+    if (additions.length) {
+      try {
+        const parsed = await analyzeInventoryText(additions.map((change) =>
+          `${change.name} ${change.quantity ?? ""}${change.unit ?? ""}`).join("\n"));
+        additionRows = appendPurchaseReviewRows([], [analysisFromResponse(`CHAT-${Date.now()}`, parsed)]);
+      } catch {
+        // The reviewer can fill an unrecognized shelf-life date instead of losing the proposal.
+      }
+    }
+    const rows = createChatInventoryDraft(response.inventoryChanges, latestInventory, additionRows);
+    setState((current) => ({ ...current, inventory: latestInventory }));
+    if (rows.length) {
+      setChatInventoryRows(rows);
+      setChatInventoryKey(`chat-${Date.now()}-${Math.random().toString(36).slice(2)}`);
+    }
+  };
   const handleSendChat = async () => {
     if (aiBusy || !input.trim()) return;
     const outgoing = input.trim();
@@ -660,49 +710,54 @@ export default function NaengTalk() {
           providedAt: new Date().toISOString().slice(0, 10),
         }));
       } else {
-        const response = await sendMenuChat({
+        const request: MenuChatRequest = {
           message: outgoing,
           history: state.recipe
             ? [...previousHistory, recipeContextMessage(state.recipe)]
             : previousHistory,
           cookingTools: state.tools,
           allergens: state.allergens,
-        });
-        setState((current) => ({
-          ...current,
-          chat: [...current.chat, { role: "assistant", content: response.reply }],
-          recipe: response.recipe ?? current.recipe,
-          ...(response.recipe ? { saved: false, ...newProposalSharingState() } : {}),
-          providedAt: response.recipe
-            ? new Date().toISOString().slice(0, 10)
-            : current.providedAt,
-        }));
-        if (response.inventoryChanges.length) {
-          const latestInventory = await loadRemoteInventory();
-          let additionRows: PurchaseReviewRow[] = [];
-          const additions = response.inventoryChanges.filter((change) => change.action === "add");
-          if (additions.length) {
-            try {
-              const parsed = await analyzeInventoryText(additions.map((change) =>
-                `${change.name} ${change.quantity ?? ""}${change.unit ?? ""}`).join("\n"));
-              additionRows = appendPurchaseReviewRows([], [analysisFromResponse(`CHAT-${Date.now()}`, parsed)]);
-            } catch {
-              // The reviewer can fill an unrecognized shelf-life date instead of losing the proposal.
-            }
-          }
-          const rows = createChatInventoryDraft(response.inventoryChanges, latestInventory, additionRows);
-          setState((current) => ({ ...current, inventory: latestInventory }));
-          if (rows.length) {
-            setChatInventoryRows(rows);
-            setChatInventoryKey(`chat-${Date.now()}-${Math.random().toString(36).slice(2)}`);
-          }
-        }
+        };
+        const response = await sendMenuChat(request);
+        await applyRemoteMenuChatResponse(response, request);
       }
     } catch (e) {
       setError((e as Error).message);
     } finally {
       setAiBusy(false);
     }
+  };
+  const confirmMissingIngredientRequest = async () => {
+    if (!missingIngredientPending || aiBusy) return;
+    const pending = missingIngredientPending;
+    setError("");
+    setAiBusy(true);
+    try {
+      const request: MenuChatRequest = {
+        ...pending.request,
+        missingIngredientConfirmationTicket: pending.confirmation.ticket,
+      };
+      const response = await sendMenuChat(request);
+      await applyRemoteMenuChatResponse(response, request);
+    } catch (e) {
+      // A confirmation ticket is single-use. A failed confirmed request must be started again.
+      setMissingIngredientPending(null);
+      setError((e as Error).message);
+    } finally {
+      setAiBusy(false);
+    }
+  };
+  const cancelMissingIngredientRequest = () => {
+    if (!missingIngredientPending || aiBusy) return;
+    const ingredientLabel = missingIngredientPending.confirmation.ingredients.join(", ");
+    setMissingIngredientPending(null);
+    setState((current) => ({
+      ...current,
+      chat: [...current.chat, {
+        role: "assistant",
+        content: `${ingredientLabel} 없이 진행하지 않고 레시피 생성을 취소했어요.`,
+      }],
+    }));
   };
   const confirmChatInventory = async (rows: ChatInventoryRow[] = chatInventoryRows) => {
     if (chatInventoryBusy) return;
@@ -1098,6 +1153,13 @@ export default function NaengTalk() {
           visible={shareConsentVisible}
           onCancel={() => setShareConsentVisible(false)}
           onConfirmShare={() => void confirmShare()}
+        />
+        <MissingIngredientConfirmModal
+          visible={missingIngredientPending !== null}
+          ingredients={missingIngredientPending?.confirmation.ingredients ?? []}
+          busy={aiBusy}
+          onCancel={cancelMissingIngredientRequest}
+          onConfirm={() => void confirmMissingIngredientRequest()}
         />
         <InventorySortModal
           visible={sortMenu}

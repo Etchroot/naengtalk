@@ -4,6 +4,8 @@ import {
   createAiRequestTrace,
   finishAiRequestTrace,
   measureAiStage,
+  recordAiAttemptFailure,
+  recordAiFinalFailure,
   recordOpenAiFailure,
   recordOpenAiUsage,
 } from '../supabase/functions/_shared/ai-request-observability.ts';
@@ -14,6 +16,9 @@ test('stage timings, model calls, token totals and request ids become one bounde
   trace.ownerId = '22222222-2222-4222-8222-222222222222';
   trace.intent = 'recipe';
   trace.candidateOrigin = 'MFDS';
+  trace.initialCandidateOrigin = 'MFDS';
+  trace.generationPath = 'public_technique';
+  trace.candidateScoreBand = 'high';
 
   await measureAiStage(trace, 'inventory', async () => { now += 12; return 'ok'; });
   await measureAiStage(trace, 'inventory', async () => { now += 8; });
@@ -35,6 +40,10 @@ test('stage timings, model calls, token totals and request ids become one bounde
   assert.deepEqual(payload.openai_request_ids, ['resp_luna', 'resp_terra']);
   assert.equal(payload.intent, 'recipe');
   assert.equal(payload.candidate_origin, 'MFDS');
+  assert.equal(payload.initial_candidate_origin, 'MFDS');
+  assert.equal(payload.generation_path, 'public_technique');
+  assert.equal(payload.candidate_score_band, 'high');
+  assert.equal(JSON.stringify(payload).includes('삼겹살'), false);
 });
 
 test('trace payload never contains user content fields and clamps untrusted usage values', () => {
@@ -79,4 +88,42 @@ test('a failed OpenAI attempt still records its model call and provider request 
   const payload = finishAiRequestTrace(trace, 502, 'OPENAI_500', () => 5);
   assert.equal(payload.terra_call_count, 1);
   assert.deepEqual(payload.openai_request_ids, ['req_failed_terra']);
+});
+
+test('trace summary publishes only bounded machine failure diagnostics', () => {
+  const trace = createAiRequestTrace('66666666-6666-4666-8666-666666666666', () => 0);
+  recordAiAttemptFailure(trace, 'initial', `INITIAL_${'X'.repeat(80)}`);
+  recordAiAttemptFailure(trace, 'repair', 'user@example.com');
+  recordAiFinalFailure(trace, 'validation_repair', 'REQUESTED_INGREDIENT_MISSING');
+
+  const payload = finishAiRequestTrace(trace, 422, 'REQUESTED_INGREDIENT_MISSING', () => 5);
+  assert.equal(String(payload.initial_failure_code).length, 64);
+  assert.equal(payload.repair_failure_code, null);
+  assert.equal(payload.final_failure_code, 'REQUESTED_INGREDIENT_MISSING');
+  assert.equal(payload.failure_stage, 'validation_repair');
+  assert.equal(JSON.stringify(payload).includes('user@example.com'), false);
+});
+
+test('failure helpers map attempts correctly and unknown stages fall back safely', () => {
+  const trace = createAiRequestTrace('77777777-7777-4777-8777-777777777777', () => 0);
+  recordAiAttemptFailure(trace, 'repair', 'OPENAI_500');
+  recordAiFinalFailure(trace, 'not_a_stage' as never, 'CATALOG_READ');
+
+  const payload = finishAiRequestTrace(trace, 502, 'CATALOG_READ', () => 1);
+  assert.equal(payload.initial_failure_code, null);
+  assert.equal(payload.repair_failure_code, 'OPENAI_500');
+  assert.equal(payload.final_failure_code, 'CATALOG_READ');
+  assert.equal(payload.failure_stage, 'unknown');
+});
+
+test('technique path fields use exact allowlists and unknown values serialize as null', () => {
+  const trace = createAiRequestTrace('88888888-8888-4888-8888-888888888888', () => 0);
+  trace.initialCandidateOrigin = 'UNTRUSTED' as never;
+  trace.generationPath = 'web_search' as never;
+  trace.candidateScoreBand = 'excellent' as never;
+
+  const payload = finishAiRequestTrace(trace, 200, undefined, () => 1);
+  assert.equal(payload.initial_candidate_origin, null);
+  assert.equal(payload.generation_path, null);
+  assert.equal(payload.candidate_score_band, null);
 });

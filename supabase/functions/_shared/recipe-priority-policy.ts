@@ -14,7 +14,7 @@ function ingredientMatches(required: string, actual: string): boolean {
     && (expected === candidate || expected.includes(candidate) || candidate.includes(expected));
 }
 
-const meaningfulPreparation = /(끓|볶|굽|찌|삶|데치|부치|튀기|조리|졸이|익히|데우|무치|버무리|절이|갈아|블렌딩|숙성|오븐|전자레인지)/;
+const meaningfulPreparation = /(끓|볶|굽|찌|삶|데치|부치|튀기|조리|졸이|익(?:히|혀|힌|힙)|데우|무치|버무리|절이|갈아|블렌딩|숙성|오븐|전자레인지)/;
 
 export function assertRecipeQuality(recipe: RecipeQualityInput, requiredIngredients: string[]): void {
   const ingredientNames = Array.isArray(recipe.ingredients)

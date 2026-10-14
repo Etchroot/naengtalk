@@ -29,7 +29,7 @@ test('matching lots sum quantity and convert T/t to ml', () => {
   assert.equal(result.correctedIngredients[0].inInventory, true);
 });
 
-test('two missing food ingredients fail the one-purchase limit', () => {
+test('missing food ingredients are counted for the zero-purchase guard', () => {
   const check = Reflect.get(guard, 'checkRecipeInventory');
   const result = check({ ingredients: [
     { ingredientKey: null, name: '멸치', quantity: 30, unit: 'g', inInventory: true, requiredPurchase: false },
@@ -45,4 +45,18 @@ test('two lines cannot spend the same lot twice', () => {
     { ingredientKey: '두부', name: '두부', quantity: 80, unit: 'g', inInventory: true, requiredPurchase: false },
   ] }, [{ ingredient_key: '두부', display_name: '두부', quantity: 100, unit: 'g' }]);
   assert.equal(result.purchaseCount, 1);
+});
+
+test('only explicitly approved missing requested foods bypass the zero-purchase rejection', () => {
+  const check = Reflect.get(guard, 'checkRecipeInventory');
+  const result = check({ ingredients: [
+    { ingredientKey: null, name: '연어', quantity: 150, unit: 'g', inInventory: false, requiredPurchase: true },
+    { ingredientKey: null, name: '우유', quantity: 100, unit: 'ml', inInventory: false, requiredPurchase: true },
+    { ingredientKey: '감자', name: '감자', quantity: 2, unit: '개', inInventory: true, requiredPurchase: false },
+  ] }, [{ ingredient_key: '감자', display_name: '감자', quantity: 5, unit: '개' }], ['연어']);
+
+  assert.deepEqual(result.missingNames, ['우유']);
+  assert.equal(result.purchaseCount, 1);
+  assert.equal(result.correctedIngredients[0].requiredPurchase, true);
+  assert.equal(result.correctedIngredients[0].inInventory, false);
 });

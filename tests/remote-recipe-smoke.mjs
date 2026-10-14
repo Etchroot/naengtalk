@@ -15,8 +15,9 @@ if (signInError) throw new Error(`guest sign-in: ${signInError.message}`);
 const { error: bootstrapError } = await client.rpc('bootstrap_guest_inventory');
 if (bootstrapError) throw new Error(`guest bootstrap: ${bootstrapError.message}`);
 if (process.argv.includes('--security')) {
-  const { error: searchError } = await client.rpc('search_recipe_candidates', {
-    query_name: '계란말이', ingredient_names: ['계란'], source_kind: 'catalog',
+  const { error: searchError } = await client.rpc('search_recipe_technique_candidates', {
+    query_name: '계란말이', required_ingredient_names: ['계란'],
+    inventory_names: ['계란'], source_kind: 'catalog',
   });
   if (!searchError) throw new Error('public client accessed private catalog search');
   const { error: prematureShareError } = await client.rpc('share_completed_ai_recipe', {
@@ -42,7 +43,7 @@ const { data, error } = await client.functions.invoke('menu-chat', {
 });
 if (error) throw new Error(`menu-chat: ${error.message}; ${JSON.stringify(data)}`);
 const purchases = data.recipe?.ingredients?.filter((item) => item.requiredPurchase).map((item) => item.name) ?? [];
-if (purchases.length > 1) throw new Error(`recipe exceeded the one-purchase limit: ${purchases.join(', ')}`);
+if (purchases.length > 0) throw new Error(`recipe requires unavailable ingredients: ${purchases.join(', ')}`);
 console.log(JSON.stringify({ reply: data.reply, title: data.recipe?.title, origin: data.recipe?.origin,
   ingredients: data.recipe?.ingredients?.length, purchases }));
 

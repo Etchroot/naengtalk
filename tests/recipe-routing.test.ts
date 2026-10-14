@@ -10,6 +10,65 @@ const candidate = (overrides: Record<string, unknown> = {}) => ({
   ...overrides,
 });
 
+const techniqueCandidate = (overrides: Record<string, unknown> = {}) => ({
+  id: 'MFDS_TECHNIQUE', title: '삼겹살 된장찌개', origin: 'MFDS',
+  name_score: 0, method_score: 0,
+  required_matched_count: 2, required_count: 2,
+  inventory_matched_count: 3, ingredient_count: 8, step_count: 4,
+  ...overrides,
+});
+
+test('technique candidate may contain absent garnish when both requested foods match', () => {
+  const select = Reflect.get(routing, 'selectTechniqueCandidate');
+  assert.equal(typeof select, 'function');
+  const selected = select({ dishName: '', requiredIngredientCount: 2 }, [techniqueCandidate()]);
+  assert.equal(selected?.id, 'MFDS_TECHNIQUE');
+});
+
+test('named candidate cannot rely on its title while missing every requested food', () => {
+  const select = Reflect.get(routing, 'selectTechniqueCandidate');
+  assert.equal(typeof select, 'function');
+  const selected = select({ dishName: '된장찌개', requiredIngredientCount: 1 }, [techniqueCandidate({
+    title: '된장찌개', name_score: 100,
+    required_matched_count: 0, required_count: 1,
+  })]);
+  assert.equal(selected, null);
+});
+
+test('vague request needs two pantry matches and thirty percent overlap', () => {
+  const select = Reflect.get(routing, 'selectTechniqueCandidate');
+  assert.equal(typeof select, 'function');
+  assert.equal(select({ dishName: '', requiredIngredientCount: 0 }, [techniqueCandidate({
+    required_matched_count: 0, required_count: 0,
+    inventory_matched_count: 1, ingredient_count: 5,
+  })]), null);
+  assert.equal(select({ dishName: '', requiredIngredientCount: 0 }, [techniqueCandidate({
+    required_matched_count: 0, required_count: 0,
+    inventory_matched_count: 2, ingredient_count: 8,
+  })]), null);
+  assert.equal(select({ dishName: '', requiredIngredientCount: 0 }, [techniqueCandidate({
+    id: 'eligible', required_matched_count: 0, required_count: 0,
+    inventory_matched_count: 3, ingredient_count: 8,
+  })])?.id, 'eligible');
+});
+
+test('technique score and stable tie breaks follow the approved priority', () => {
+  const select = Reflect.get(routing, 'selectTechniqueCandidate');
+  const score = Reflect.get(routing, 'scoreTechniqueCandidate');
+  const band = Reflect.get(routing, 'candidateScoreBand');
+  assert.equal(typeof score, 'function');
+  assert.equal(typeof band, 'function');
+  const input = { dishName: '', requiredIngredientCount: 2 };
+  const high = techniqueCandidate({ id: 'high', inventory_matched_count: 7, ingredient_count: 8 });
+  const low = techniqueCandidate({ id: 'low', inventory_matched_count: 2, ingredient_count: 8 });
+  assert.ok(score(input, high) > score(input, low));
+  assert.equal(band(75), 'high');
+  assert.equal(band(55), 'medium');
+  assert.equal(band(54.99), 'low');
+  assert.deepEqual(select(input, [low, high])?.id, 'high');
+  assert.equal(select(input, [techniqueCandidate({ step_count: 1 })]), null);
+});
+
 test('exact named dish cannot outrank pantry feasibility', () => {
   const chooseRecipeCandidate = Reflect.get(routing, 'chooseRecipeCandidate');
   assert.equal(typeof chooseRecipeCandidate, 'function');
@@ -63,6 +122,15 @@ test('recipe instructions do not request any external website lookup', () => {
     assert.doesNotMatch(instructions, /만개의레시피|10000recipe\.com|youtube|웹 검색으로/i);
     assert.match(instructions, /외부 레시피/);
   }
+});
+
+test('technique instructions borrow cooking logic without copying absent ingredients', () => {
+  const buildRecipeInstructions = Reflect.get(contract, 'buildRecipeInstructions');
+  const instructions = buildRecipeInstructions('technique');
+  assert.match(instructions, /조리 기술 참고자료/);
+  assert.match(instructions, /원본 재료 목록을 복제하지/);
+  assert.match(instructions, /물이 실제 조리에 필요할 때만/);
+  assert.match(instructions, /육수.*우유.*기름.*재고/);
 });
 
 test('requested foods remain in the bounded catalog search when a guest owns thirty lots', () => {

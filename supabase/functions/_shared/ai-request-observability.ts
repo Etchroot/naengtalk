@@ -8,8 +8,28 @@ export type AiTraceStage =
   | 'validation'
   | 'terraRepair';
 
+export type AiFailureStage =
+  | 'auth'
+  | 'request_parse'
+  | 'rate_limit'
+  | 'inventory_query'
+  | 'intent_model'
+  | 'intent_parse'
+  | 'catalog_search'
+  | 'terra_initial'
+  | 'validation_initial'
+  | 'terra_repair'
+  | 'validation_repair'
+  | 'response'
+  | 'unknown';
+
+type AiFailureAttempt = 'initial' | 'repair';
+
 type AiModelKind = 'luna' | 'terra';
 type Clock = () => number;
+export type GenerationPath = 'public_technique' | 'shared_technique' | 'ai_only' | 'ai_repair';
+export type CandidateScoreBand = 'high' | 'medium' | 'low';
+export type InitialCandidateOrigin = 'MFDS' | 'MAFRA' | 'SHARED_AI' | 'AI_GENERATED';
 
 const STAGE_KEYS: Record<AiTraceStage, string> = {
   auth: 'auth_ms',
@@ -27,7 +47,14 @@ export type AiRequestTrace = {
   ownerId: string | null;
   intent: string | null;
   candidateOrigin: string | null;
+  initialCandidateOrigin: InitialCandidateOrigin | null;
+  generationPath: GenerationPath | null;
+  candidateScoreBand: CandidateScoreBand | null;
   repairReason: string | null;
+  initialFailureCode: string | null;
+  repairFailureCode: string | null;
+  finalFailureCode: string | null;
+  failureStage: AiFailureStage | null;
   startedAt: number;
   clock: Clock;
   stages: Record<AiTraceStage, number>;
@@ -45,6 +72,35 @@ function boundedInteger(value: unknown, max: number): number {
 function boundedLabel(value: string | null | undefined, max: number): string | null {
   const normalized = value?.trim();
   return normalized ? normalized.slice(0, max) : null;
+}
+
+function boundedFailureCode(value: unknown): string | null {
+  if (typeof value !== 'string') return null;
+  const normalized = value.trim().slice(0, 64);
+  return /^[A-Z][A-Z0-9_]*$/.test(normalized) ? normalized : null;
+}
+
+const FAILURE_STAGES = new Set<AiFailureStage>([
+  'auth', 'request_parse', 'rate_limit', 'inventory_query', 'intent_model',
+  'intent_parse', 'catalog_search', 'terra_initial', 'validation_initial',
+  'terra_repair', 'validation_repair', 'response', 'unknown',
+]);
+const INITIAL_CANDIDATE_ORIGINS = new Set<InitialCandidateOrigin>([
+  'MFDS', 'MAFRA', 'SHARED_AI', 'AI_GENERATED',
+]);
+const GENERATION_PATHS = new Set<GenerationPath>([
+  'public_technique', 'shared_technique', 'ai_only', 'ai_repair',
+]);
+const CANDIDATE_SCORE_BANDS = new Set<CandidateScoreBand>(['high', 'medium', 'low']);
+
+function boundedEnum<T extends string>(value: unknown, values: Set<T>): T | null {
+  return typeof value === 'string' && values.has(value as T) ? value as T : null;
+}
+
+function boundedFailureStage(value: unknown): AiFailureStage | null {
+  return typeof value === 'string' && FAILURE_STAGES.has(value as AiFailureStage)
+    ? value as AiFailureStage
+    : null;
 }
 
 function recordOpenAiCall(trace: AiRequestTrace, model: AiModelKind): void {
@@ -67,7 +123,14 @@ export function createAiRequestTrace(
     ownerId: null,
     intent: null,
     candidateOrigin: null,
+    initialCandidateOrigin: null,
+    generationPath: null,
+    candidateScoreBand: null,
     repairReason: null,
+    initialFailureCode: null,
+    repairFailureCode: null,
+    finalFailureCode: null,
+    failureStage: null,
     startedAt: clock(),
     clock,
     stages: {
@@ -85,6 +148,25 @@ export function createAiRequestTrace(
     outputTokens: { luna: 0, terra: 0 },
     openAiRequestIds: [],
   };
+}
+
+export function recordAiAttemptFailure(
+  trace: AiRequestTrace,
+  attempt: AiFailureAttempt,
+  code: unknown,
+): void {
+  const boundedCode = boundedFailureCode(code);
+  if (attempt === 'initial') trace.initialFailureCode = boundedCode;
+  else trace.repairFailureCode = boundedCode;
+}
+
+export function recordAiFinalFailure(
+  trace: AiRequestTrace,
+  stage: AiFailureStage,
+  code: unknown,
+): void {
+  trace.finalFailureCode = boundedFailureCode(code);
+  trace.failureStage = boundedFailureStage(stage) ?? 'unknown';
 }
 
 export async function measureAiStage<T>(
@@ -150,9 +232,16 @@ export function finishAiRequestTrace(
     owner_id: trace.ownerId,
     intent: boundedLabel(trace.intent, 32),
     candidate_origin: boundedLabel(trace.candidateOrigin, 32),
+    initial_candidate_origin: boundedEnum(trace.initialCandidateOrigin, INITIAL_CANDIDATE_ORIGINS),
+    generation_path: boundedEnum(trace.generationPath, GENERATION_PATHS),
+    candidate_score_band: boundedEnum(trace.candidateScoreBand, CANDIDATE_SCORE_BANDS),
     status: boundedInteger(status, 599),
-    error_code: boundedLabel(errorCode, 64),
+    error_code: boundedFailureCode(errorCode),
     repair_reason: boundedLabel(trace.repairReason, 64),
+    initial_failure_code: boundedFailureCode(trace.initialFailureCode),
+    repair_failure_code: boundedFailureCode(trace.repairFailureCode),
+    final_failure_code: boundedFailureCode(trace.finalFailureCode),
+    failure_stage: boundedFailureStage(trace.failureStage),
     total_ms: boundedInteger(clock() - trace.startedAt, 120_000),
     ...stagePayload,
     luna_call_count: boundedInteger(trace.calls.luna, 1),

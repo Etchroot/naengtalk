@@ -61,6 +61,20 @@ export const s = StyleSheet.create({
     borderRadius: 22,
     gap: 10,
   },
+  optionalIngredientTip: {
+    marginTop: 2,
+    paddingHorizontal: 12,
+    paddingVertical: 10,
+    borderRadius: 12,
+    backgroundColor: color.soft,
+    gap: 3,
+  },
+  optionalIngredientTipLabel: {
+    color: color.green,
+    fontSize: 13,
+    lineHeight: 18,
+    fontWeight: "700",
+  },
   row: { flexDirection: "row", gap: 10, alignItems: "center" },
   headerCopy: {
     flex: 1,

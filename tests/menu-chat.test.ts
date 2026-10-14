@@ -26,6 +26,35 @@ test('menu chat request keeps only six bounded recent messages', () => {
   assert.deepEqual(result.allergens, ['새우']);
 });
 
+test('menu chat request keeps one bounded missing-ingredient confirmation ticket', () => {
+  const sanitizeMenuChatRequest = Reflect.get(menuChat, 'sanitizeMenuChatRequest');
+  const result = sanitizeMenuChatRequest({
+    message: '연어와 감자로 요리해줘', history: [], cookingTools: ['후라이팬'], allergens: [],
+    missingIngredientConfirmationTicket: `  ${'a'.repeat(64)}  `,
+  });
+  assert.equal(result.missingIngredientConfirmationTicket, 'a'.repeat(64));
+  assert.throws(() => sanitizeMenuChatRequest({
+    message: '연어 요리', history: [], cookingTools: [], allergens: [],
+    missingIngredientConfirmationTicket: 'x'.repeat(201),
+  }), /채팅 요청/);
+});
+
+test('menu chat response exposes a bounded missing-ingredient confirmation instead of a recipe', () => {
+  const parseMenuChatResponse = Reflect.get(menuChat, 'parseMenuChatResponse');
+  const response = parseMenuChatResponse({
+    reply: '연어는 현재 재고에 없습니다.',
+    recipe: null,
+    missingIngredientConfirmation: {
+      ticket: 'ticket-123',
+      ingredients: [' 연어 ', '연어', '우유'],
+    },
+  });
+  assert.deepEqual(response.missingIngredientConfirmation, {
+    ticket: 'ticket-123', ingredients: ['연어', '우유'],
+  });
+  assert.deepEqual(response.inventoryChanges, []);
+});
+
 test('menu chat response becomes a safe dynamic recipe and deduction list', () => {
   const parseMenuChatResponse = Reflect.get(menuChat, 'parseMenuChatResponse');
   const recipeUsage = Reflect.get(menuChat, 'recipeUsage');
@@ -61,6 +90,42 @@ test('menu chat response becomes a safe dynamic recipe and deduction list', () =
   assert.match(context.content, /현재 제안 레시피: 김치 두부찌개/);
   assert.match(context.content, /김치 150g/);
   assert.equal(context.content.length <= 500, true);
+});
+
+test('an optional missing ingredient stays outside the cooking ingredients and deduction list', () => {
+  const parseMenuChatResponse = Reflect.get(menuChat, 'parseMenuChatResponse');
+  const recipeUsage = Reflect.get(menuChat, 'recipeUsage');
+  const response = parseMenuChatResponse({
+    reply: '삼겹살 된장찌개를 추천해요.',
+    recipe: {
+      title: '삼겹살 된장찌개', reason: '보유 재료만 사용해요.',
+      servings: 1, minutes: 20, difficulty: '쉬움',
+      ingredients: [
+        { ingredientKey: 'pork-belly', name: '삼겹살', quantity: 150, unit: 'g', inInventory: true, requiredPurchase: false },
+        { ingredientKey: 'doenjang', name: '된장', quantity: 30, unit: 'g', inInventory: true, requiredPurchase: false },
+        { ingredientKey: 'scallion', name: '대파', quantity: 20, unit: 'g', inInventory: true, requiredPurchase: false },
+        { ingredientKey: null, name: '물', quantity: 350, unit: 'ml', inInventory: false, requiredPurchase: false },
+      ],
+      steps: [{ text: '물에 된장을 풀고 삼겹살을 끓인 뒤 대파를 넣습니다.', minutes: 15 }],
+      optionalIngredientTip: {
+        ingredientName: '애호박',
+        stepNumber: 1,
+        message: '애호박이 있으면 이 단계에 넣으면 국물 맛이 더 좋아져요.',
+      },
+      sources: [],
+    },
+  });
+
+  assert.deepEqual(response.recipe?.optionalIngredientTip, {
+    ingredientName: '애호박',
+    stepNumber: 1,
+    message: '애호박이 있으면 이 단계에 넣으면 국물 맛이 더 좋아져요.',
+  });
+  assert.deepEqual(recipeUsage(response.recipe!), [
+    { ingredientId: 'pork-belly', quantity: 150, unit: 'g' },
+    { ingredientId: 'doenjang', quantity: 30, unit: 'g' },
+    { ingredientId: 'scallion', quantity: 20, unit: 'g' },
+  ]);
 });
 
 test('teaspoon recipe quantities display as t and deduct as milliliters', () => {
@@ -104,7 +169,7 @@ test('one-minute recipe steps never expose a timer', () => {
 test('recipe AI instructions define measurement, timer, and hidden-system-copy rules', () => {
   const buildRecipeInstructions = Reflect.get(edgeContract, 'buildRecipeInstructions');
   assert.equal(typeof buildRecipeInstructions, 'function');
-  const instructions = buildRecipeInstructions(false);
+  const instructions = buildRecipeInstructions('generate');
 
   assert.match(instructions, /15ml\s*=\s*1T/);
   assert.match(instructions, /5ml\s*=\s*1t/);
@@ -112,6 +177,8 @@ test('recipe AI instructions define measurement, timer, and hidden-system-copy r
   assert.match(instructions, /표시된 재고 재료만 차감/);
   assert.match(instructions, /1분 이하/);
   assert.match(instructions, /조리가 아닌 작업/);
+  assert.match(instructions, /ingredients에는 사용자 재고와 물만/);
+  assert.match(instructions, /optionalIngredientTip/);
 });
 
 test('invalid model quantities and units are rejected before UI or inventory use', () => {

@@ -29,8 +29,10 @@ function comparable(unit: string | null, quantity: number | null): { unit: strin
 export function checkRecipeInventory(
   recipe: { ingredients: RecipeIngredient[] },
   inventory: RecipeLot[],
+  approvedMissingNames: string[] = [],
 ): { missingNames: string[]; purchaseCount: number; correctedIngredients: RecipeIngredient[] } {
   const missingNames: string[] = [];
+  const approved = approvedMissingNames.map(normalize).filter(Boolean);
   const reserved = new Map<string, number>();
   const correctedIngredients = recipe.ingredients.map((ingredient) => {
     const name = normalize(ingredient.name);
@@ -51,7 +53,8 @@ export function checkRecipeInventory(
     const remaining = available - (reserved.get(reservationKey) ?? 0);
     const inInventory = Boolean(amount && remaining >= amount.quantity);
     if (inInventory && amount) reserved.set(reservationKey, (reserved.get(reservationKey) ?? 0) + amount.quantity);
-    if (!inInventory) missingNames.push(ingredient.name.trim());
+    const approvedMissing = !inInventory && approved.some((item) => item === name);
+    if (!inInventory && !approvedMissing) missingNames.push(ingredient.name.trim());
     return {
       ...ingredient,
       ingredientKey: inInventory ? matching[0]?.ingredient_key ?? null : null,

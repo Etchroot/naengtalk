@@ -38,6 +38,16 @@ test('serving ingredients with a dipping sauce is not a meaningful cooked dish',
   }, ['두부', '대파']));
 });
 
+test('익힌다 and its common Korean conjugations count as meaningful cooking', () => {
+  const assertRecipeQuality = Reflect.get(priorityPolicy, 'assertRecipeQuality');
+  for (const text of ['속까지 익힌다.', '약불에서 익혀 완성한다.', '충분히 익힙니다.']) {
+    assert.doesNotThrow(() => assertRecipeQuality({
+      ingredients: [{ name: '연어' }],
+      steps: [{ text }],
+    }, ['연어']));
+  }
+});
+
 test('expiry urgency only influences recipes inside the seven-day window', () => {
   const classifyRecipeExpiry = Reflect.get(expiryPolicy, 'classifyRecipeExpiry');
   assert.equal(typeof classifyRecipeExpiry, 'function');

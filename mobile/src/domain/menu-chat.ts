@@ -15,6 +15,7 @@ export type MenuChatRequest = {
   history: ChatMessage[];
   cookingTools: string[];
   allergens: string[];
+  missingIngredientConfirmationTicket?: string;
 };
 export type RecipeIngredient = {
   ingredientKey: string | null;
@@ -23,6 +24,11 @@ export type RecipeIngredient = {
   unit: 'g' | 'ml' | 'T' | 't' | '개' | '대' | null;
   inInventory: boolean;
   requiredPurchase: boolean;
+};
+export type OptionalIngredientTip = {
+  ingredientName: string;
+  stepNumber: number;
+  message: string;
 };
 export type MenuRecipe = {
   origin?: RecipeOrigin;
@@ -33,9 +39,16 @@ export type MenuRecipe = {
   difficulty: '쉬움' | '보통' | '어려움';
   ingredients: RecipeIngredient[];
   steps: Array<{ text: string; minutes: number }>;
+  optionalIngredientTip: OptionalIngredientTip | null;
   sources: Array<{ title: string; url: string }>;
 };
-export type MenuChatResponse = { reply: string; recipe: MenuRecipe | null; inventoryChanges: ChatInventoryChange[] };
+export type MissingIngredientConfirmation = { ticket: string; ingredients: string[] };
+export type MenuChatResponse = {
+  reply: string;
+  recipe: MenuRecipe | null;
+  inventoryChanges: ChatInventoryChange[];
+  missingIngredientConfirmation: MissingIngredientConfirmation | null;
+};
 
 function boundedLabels(value: unknown): string[] {
   if (!Array.isArray(value)) return [];
@@ -63,11 +76,16 @@ export function sanitizeMenuChatRequest(input: unknown): MenuChatRequest {
           content: (item.content as string).trim().slice(0, 500),
         }))
     : [];
+  const ticket = raw.missingIngredientConfirmationTicket;
+  if (ticket !== undefined && (typeof ticket !== 'string' || !ticket.trim() || ticket.trim().length > 200)) {
+    throw new Error('채팅 요청을 확인해주세요.');
+  }
   return {
     message,
     history,
     cookingTools: boundedLabels(raw.cookingTools),
     allergens: boundedLabels(raw.allergens),
+    ...(typeof ticket === 'string' ? { missingIngredientConfirmationTicket: ticket.trim() } : {}),
   };
 }
 
@@ -106,7 +124,20 @@ export function parseMenuChatResponse(input: unknown): MenuChatResponse {
           ingredientKey: item.ingredientKey as string | null, quantity,
           unit: unit as ChatInventoryChange['unit'], all: item.all };
       }) : [];
-  if (raw.recipe === null) return { reply, recipe: null, inventoryChanges };
+  const confirmation = raw.missingIngredientConfirmation;
+  const missingIngredientConfirmation = confirmation && typeof confirmation === 'object'
+    ? (() => {
+        const value = confirmation as Record<string, unknown>;
+        const ticket = text(value.ticket, 200);
+        if (!Array.isArray(value.ingredients)) invalidAiResponse();
+        const ingredients = [...new Set(value.ingredients
+          .map((item) => typeof item === 'string' ? item.trim().slice(0, 100) : '')
+          .filter(Boolean))].slice(0, 10);
+        if (!ingredients.length) invalidAiResponse();
+        return { ticket, ingredients };
+      })()
+    : null;
+  if (raw.recipe === null) return { reply, recipe: null, inventoryChanges, missingIngredientConfirmation };
   if (!raw.recipe || typeof raw.recipe !== 'object') invalidAiResponse();
   const recipe = raw.recipe as Record<string, unknown>;
   if (!Array.isArray(recipe.ingredients) || !recipe.ingredients.length || recipe.ingredients.length > 30) invalidAiResponse();
@@ -138,6 +169,19 @@ export function parseMenuChatResponse(input: unknown): MenuChatResponse {
     const minutes = nonnegativeNumber(step.minutes);
     return { text: text(step.text, 1000), minutes: minutes <= 1 ? 0 : minutes };
   });
+  const rawTip = recipe.optionalIngredientTip;
+  const optionalIngredientTip = rawTip && typeof rawTip === 'object'
+    ? (() => {
+        const tip = rawTip as Record<string, unknown>;
+        const stepNumber = positiveNumber(tip.stepNumber);
+        if (!Number.isInteger(stepNumber) || stepNumber > steps.length) invalidAiResponse();
+        return {
+          ingredientName: text(tip.ingredientName, 100),
+          stepNumber,
+          message: text(tip.message, 300),
+        };
+      })()
+    : null;
   const sources = recipe.sources.map((item) => {
     if (!item || typeof item !== 'object') invalidAiResponse();
     const source = item as Record<string, unknown>;
@@ -151,6 +195,7 @@ export function parseMenuChatResponse(input: unknown): MenuChatResponse {
   return {
     reply,
     inventoryChanges,
+    missingIngredientConfirmation,
     recipe: {
       origin,
       title: text(recipe.title, 200),
@@ -160,6 +205,7 @@ export function parseMenuChatResponse(input: unknown): MenuChatResponse {
       difficulty,
       ingredients,
       steps,
+      optionalIngredientTip,
       sources,
     },
   };
@@ -183,8 +229,10 @@ export function recipeContextMessage(recipe: MenuRecipe): ChatMessage {
     .map((item) => `${item.name}${item.quantity !== null && item.unit ? ` ${item.quantity}${item.unit}` : ''}${item.requiredPurchase ? '(구매 필요)' : ''}`)
     .join(', ');
   const steps = recipe.steps.map((item, index) => `${index + 1}. ${item.text}`).join(' ');
+  const optionalTip = recipe.optionalIngredientTip
+    ? `\n선택 재료 팁: ${recipe.optionalIngredientTip.message}` : '';
   return {
     role: 'assistant',
-    content: `현재 제안 레시피: ${recipe.title}\n재료: ${ingredients}\n단계: ${steps}`.slice(0, 500),
+    content: `현재 제안 레시피: ${recipe.title}\n재료: ${ingredients}\n단계: ${steps}${optionalTip}`.slice(0, 500),
   };
 }

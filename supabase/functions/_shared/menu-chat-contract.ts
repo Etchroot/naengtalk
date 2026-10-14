@@ -4,9 +4,11 @@ export type MenuChatRequest = {
   history: ChatMessage[];
   cookingTools: string[];
   allergens: string[];
+  missingIngredientConfirmationTicket?: string;
 };
 
 export { buildRecipeInstructions } from './recipe-guidelines.ts';
+export { toTechniqueReference, type TechniqueReference } from './recipe-technique-reference.ts';
 
 function labels(value: unknown): string[] {
   if (!Array.isArray(value)) return [];
@@ -34,7 +36,17 @@ export function sanitizeRequest(input: unknown): MenuChatRequest {
           content: (item.content as string).trim().slice(0, 500),
         }))
     : [];
-  return { message, history, cookingTools: labels(raw.cookingTools), allergens: labels(raw.allergens) };
+  const ticket = raw.missingIngredientConfirmationTicket;
+  if (ticket !== undefined && (typeof ticket !== 'string' || !ticket.trim() || ticket.trim().length > 200)) {
+    throw new Error('INVALID_REQUEST');
+  }
+  return {
+    message,
+    history,
+    cookingTools: labels(raw.cookingTools),
+    allergens: labels(raw.allergens),
+    ...(typeof ticket === 'string' ? { missingIngredientConfirmationTicket: ticket.trim() } : {}),
+  };
 }
 
 export const classifierSchema = {
@@ -133,6 +145,17 @@ const ingredientSchema = {
   required: ['ingredientKey', 'name', 'quantity', 'unit', 'inInventory', 'requiredPurchase'],
 };
 
+const optionalIngredientTipSchema = {
+  type: ['object', 'null'],
+  additionalProperties: false,
+  properties: {
+    ingredientName: { type: 'string' },
+    stepNumber: { type: 'integer' },
+    message: { type: 'string' },
+  },
+  required: ['ingredientName', 'stepNumber', 'message'],
+};
+
 export const recipeResponseSchema = {
   type: 'object',
   additionalProperties: false,
@@ -156,6 +179,7 @@ export const recipeResponseSchema = {
             required: ['text', 'minutes'],
           },
         },
+        optionalIngredientTip: optionalIngredientTipSchema,
         sources: {
           type: 'array', minItems: 0, maxItems: 0,
           items: {
@@ -165,11 +189,37 @@ export const recipeResponseSchema = {
           },
         },
       },
-      required: ['title', 'reason', 'servings', 'minutes', 'difficulty', 'ingredients', 'steps', 'sources'],
+      required: ['title', 'reason', 'servings', 'minutes', 'difficulty', 'ingredients', 'steps', 'optionalIngredientTip', 'sources'],
     },
   },
   required: ['reply', 'recipe'],
 };
+
+export type OptionalIngredientTip = {
+  ingredientName: string;
+  stepNumber: number;
+  message: string;
+};
+
+export function sanitizeOptionalIngredientTip(recipe: Record<string, unknown>): OptionalIngredientTip | null {
+  const value = recipe.optionalIngredientTip;
+  if (!value || typeof value !== 'object') return null;
+  const tip = value as Record<string, unknown>;
+  const ingredientName = typeof tip.ingredientName === 'string' ? tip.ingredientName.trim().slice(0, 100) : '';
+  const message = typeof tip.message === 'string' ? tip.message.trim().slice(0, 300) : '';
+  const stepNumber = typeof tip.stepNumber === 'number' && Number.isInteger(tip.stepNumber)
+    ? tip.stepNumber : 0;
+  const steps = Array.isArray(recipe.steps) ? recipe.steps : [];
+  if (!ingredientName || !message || stepNumber < 1 || stepNumber > steps.length) return null;
+  const normalized = (text: string) => text.normalize('NFKC').toLowerCase().replace(/[^0-9a-z가-힣]/g, '');
+  const actualNames = Array.isArray(recipe.ingredients)
+    ? recipe.ingredients.map((item) => item && typeof item === 'object'
+      && typeof (item as Record<string, unknown>).name === 'string'
+      ? normalized((item as Record<string, unknown>).name as string) : '')
+    : [];
+  if (actualNames.includes(normalized(ingredientName))) return null;
+  return { ingredientName, stepNumber, message };
+}
 
 export function assertAllergenSafe(result: Record<string, unknown>, allergens: string[]): void {
   const searchableRecipe = JSON.stringify(result.recipe ?? {}).toLowerCase();

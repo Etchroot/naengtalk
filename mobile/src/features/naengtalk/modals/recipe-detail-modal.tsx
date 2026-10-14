@@ -112,6 +112,12 @@ export function RecipeDetailModal({
                   <View style={s.card} key={index}>
                     <Text style={[s.title, { fontSize: 16 }]}>{formatCookingStepTitle(index)}</Text>
                     <Text style={s.text}>{breakSentences(step.text)}</Text>
+                    {recipe.optionalIngredientTip?.stepNumber === index + 1 ? (
+                      <View style={s.optionalIngredientTip}>
+                        <Text style={s.optionalIngredientTipLabel}>{`있으면 더 좋아요 · ${recipe.optionalIngredientTip.ingredientName}`}</Text>
+                        <Text style={s.muted}>{breakSentences(recipe.optionalIngredientTip.message)}</Text>
+                      </View>
+                    ) : null}
                     {step.minutes > 0 ? (
                       <AppButton secondary onPress={() => onStartTimer(index, step.minutes)}>{`${step.minutes}분 타이머 시작`}</AppButton>
                     ) : null}
