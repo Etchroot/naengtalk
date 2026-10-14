@@ -1,0 +1,40 @@
+<!doctype html>
+<html lang="ko">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>냉톡 · 월간 수익성 시뮬레이터</title>
+  <link rel="stylesheet" href="styles.css">
+  <script defer src="model.js"></script>
+  <script defer src="dashboard.js"></script>
+</head>
+<body>
+  <a class="skip" href="#results">계산 결과로 이동</a>
+  <header class="header">
+    <a class="brand" href="index.html" aria-label="냉톡 수익성 시뮬레이터 홈"><span class="brand-mark" aria-hidden="true">냉</span> 냉톡 <span class="brand-sub">사업 가정 도구</span></a>
+    <div class="actions"><button id="reset" type="button">기본 가정으로 초기화</button><button id="export" type="button" class="primary">시나리오 저장</button></div>
+  </header>
+  <main>
+    <section class="intro">
+      <div><p class="status"><span aria-hidden="true"></span> 가정값 기반 · 실측 미연동</p><h1>사용자가 늘면,<br>수익은 어떻게 달라질까요?</h1><p>광고 매출부터 AI·검색·인프라 비용까지.<br>입력한 가정을 바탕으로 냉톡의 한 달을 계산합니다.</p></div>
+      <aside class="intro-note"><strong>월간 예상치</strong><p>모든 사용량은 월 기준입니다. 달러 비용과 매출은 입력한 환율로 원화에 환산합니다.</p><span id="save-status" role="status">이 브라우저에 입력값을 저장합니다.</span></aside>
+    </section>
+    <div class="workspace">
+      <aside class="assumptions" aria-labelledby="assumptions-title"><div class="section-heading"><h2 id="assumptions-title">계산 가정</h2><span>입력 즉시 반영</span></div><form id="controls" novalidate></form><p class="small">입력값만 이 브라우저에 보관합니다. 외부 전송은 없습니다.</p></aside>
+      <section id="results" class="results" aria-labelledby="results-title">
+        <h2 id="results-title" class="sr-only">월간 계산 결과</h2>
+        <div class="kpis"><article class="kpi"><h3>월 광고 매출</h3><strong id="revenue">—</strong><span id="revenue-usd">—</span></article><article class="kpi"><h3>월 총비용</h3><strong id="cost">—</strong><span id="cost-usd">—</span></article><article class="kpi profit" id="profit-card"><h3>월 예상 손익</h3><strong id="profit">—</strong><span id="profit-usd">—</span></article></div>
+        <div class="economics"><div><span>사용자 1명당 월 매출</span><strong id="per-user-revenue">—</strong></div><div><span>사용자 1명당 월 비용</span><strong id="per-user-cost">—</strong></div><div><span>1인당 광고 − AI·기타 변동비</span><strong id="contribution">—</strong><small>인프라 고정비·초과 비용 제외</small></div></div>
+        <section class="panel"><div class="section-heading"><h2>손익분기점</h2><span>현재 가정 기준</span></div><div class="break-even"><div><span>첫 손익분기 사용자 수</span><strong id="break-even">—</strong><p id="break-even-note"></p></div><div><span>현재 사용자 수에서 필요한 eCPM</span><strong id="break-even-ecpm">—</strong><p>유효 노출 1,000회당 달러 매출</p></div></div></section>
+        <section class="panel"><div class="section-heading"><h2>분석 1회당 AI 비용</h2><span>현재 토큰·캐시 가정</span></div><dl id="feature-costs" class="feature-costs"></dl><p class="small">소진일 검색·추정까지 포함한 AI 비용입니다. 아래 월 비용 내역에 이미 포함되며 추가 비용이 아닙니다. 인프라 비용은 제외합니다.</p></section><section class="panel chart-panel"><div class="section-heading"><h2>사용자 증가에 따른 월 손익</h2><div class="legend"><span class="legend-revenue">매출</span><span class="legend-cost">총비용</span></div></div><svg id="chart" viewBox="0 0 640 270" role="img" aria-labelledby="chart-title chart-desc"><title id="chart-title">사용자 수에 따른 월 매출과 총비용</title><desc id="chart-desc"></desc></svg><p id="chart-summary" class="small"></p></section>
+        <section class="panel"><div class="section-heading"><h2>광고와 사용량</h2><span>한 달 합계</span></div><dl class="volumes"><div><dt>광고 요청</dt><dd id="ad-requests">—</dd></div><div><dt>유효 광고 노출</dt><dd id="impressions">—</dd></div><div><dt>AI 호출</dt><dd id="ai-calls">—</dd></div><div><dt>검색 호출</dt><dd id="search-calls">—</dd></div><div><dt>Edge 호출</dt><dd id="edge-calls">—</dd></div></dl></section>
+        <div id="warnings" class="warnings" role="status"></div>
+      </section>
+    </div>
+    <section class="panel cost-panel"><div class="section-heading"><h2>기능별 월 비용 내역</h2><span>단가는 USD 기준</span></div><div class="table-scroll"><table><caption class="sr-only">기능별 월 사용량, 단가, 예상 비용 및 계산 가정</caption><thead><tr><th scope="col">기능 / 비용 항목</th><th scope="col">월 사용량</th><th scope="col">단가 (USD)</th><th scope="col">월 비용 (KRW)</th><th scope="col">계산 기준</th></tr></thead><tbody id="cost-rows"></tbody></table></div></section>
+    <section class="explanation"><div><h2>배너 광고 매출은 노출로 계산합니다.</h2><p>예상 매출 = 유효 광고 노출 ÷ 1,000 × eCPM. 방문 한 번이나 화면에 머무르는 매초마다 수익이 보장되는 구조가 아닙니다. 새로고침은 광고가 보이는 동안에만 적용하며, 광고 요청이 모두 유효 노출이 되지는 않습니다. 테스트 광고의 예상 매출은 0입니다.</p></div><div><h2>공식 자료</h2><ul><li><a href="https://support.google.com/admob/answer/15337570?hl=ko" target="_blank" rel="noopener noreferrer">AdMob eCPM과 광고 지표</a></li><li><a href="https://support.google.com/admob/answer/3245199?hl=ko" target="_blank" rel="noopener noreferrer">AdMob 배너 새로고침</a></li><li><a href="https://developers.openai.com/api/docs/pricing" target="_blank" rel="noopener noreferrer">OpenAI API 요금 · GPT-5.6 Luna / Terra</a></li><li><a href="https://supabase.com/docs/guides/platform/billing-on-supabase" target="_blank" rel="noopener noreferrer">Supabase 요금과 사용량</a></li></ul><p class="small">공식 기본 단가 확인: 2026-10-11. eCPM·토큰 수·환율은 직접 수정하는 가정입니다. 실제 청구서나 수익 보고서와 연동되지 않습니다.</p></div></section>
+  </main>
+  <footer>냉톡 수익성 시뮬레이터 <span>월간 가정을 비교하고 검토하는 도구</span></footer>
+  <noscript>이 시뮬레이터를 사용하려면 브라우저에서 JavaScript를 활성화해 주세요.</noscript>
+</body>
+</html>
