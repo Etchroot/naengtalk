@@ -523,7 +523,9 @@ Android 세션은 OS가 보호하는 비밀 저장소를 사용하는 Expo 호�
 - 관측 스키마와 테이블은 `public`, `anon`, `authenticated`에 권한을 주지 않는다. 삽입 RPC는 JWT role이 `service_role`인 서버 호출만 허용하며 앱 클라이언트에서 조회·기록할 수 없다.
 - 지연 `total_ms`는 관측 DB 기록 자체를 제외한 업무 경로 시간이다. 관측은 기존 OpenAI 응답의 `usage`와 `id`를 재사용하므로 추가 모델 호출이나 토큰을 발생시키지 않는다.
 - 2026-10-11 `202610110001_ai_request_observability.sql`을 production에 적용하고 `menu-chat` v14를 배포했다. 원격 DB lint는 schema 오류 0건이었고, 두부·대파 스모크 응답 성공 뒤 `observability.ai_request_traces`에 1건이 적재되어 서버 기록 경로를 확인했다. 일별 집계는 다음 날 첫 요청이 maintenance를 수행한 뒤 확인한다.
-- 2026-10-13 `202610110002_ai_error_diagnostics.sql`을 production에 적용했고 로컬·원격 migration 일치와 DB lint 오류 0건을 확인했다. 신규 진단을 기록하는 `menu-chat` Edge Function과 클라이언트 `오류 추적 번호` 표시는 아직 production에 배포하지 않았다.
+- 2026-10-13 `202610110002_ai_error_diagnostics.sql`을 production에 적용했고 로컬과 원격 migration 일치와 DB lint 오류 0건을 확인했다.
+- 2026-10-14 `202610130001_recipe_technique_candidates.sql`, `202610130002_recipe_technique_observability.sql`, `202610130003_missing_ingredient_confirmations.sql`을 production에 적용했다. 로컬과 원격 migration 전체 일치, DB lint 오류 0건, `menu-chat` v15 ACTIVE와 JWT 검증 활성화를 확인했다.
+- 2026-10-14 최신 웹 export를 EAS Hosting production에 배포했다. 고정 URL과 배포별 URL이 동일한 최신 번들을 반환했다. 원격 guest 검증에서 재고 내 `무, 양배추` 요청은 첫 호출에서 HTTP 422가 한 차례 발생했지만 같은 조건 재호출은 `무·양배추 두부된장국`을 반환했다. 누락 재료 `연어`는 Terra 호출 전 확인 응답을 반환하고, 확인 티켓 승인 후 연어만 구매 필요 재료로 포함된 레시피를 반환했다. 간헐적 422의 운영 trace 확인은 남아 있다.
 
 ## 14. 기술 결정 대기 목록
 
