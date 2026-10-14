@@ -209,12 +209,12 @@ OCR 원문과 구조화 검수 초안은 영구 테이블에 저장하지 않고
 3. 등록 알레르기를 AI 입력과 검색 필터에 적용하고, 식품 안전·보유 조리도구·명시 시간 조건을 충족하지 못하는 후보를 먼저 제외한다.
 4. 구체 요청은 메뉴 의도·조리 가능성·재고 활용도·임박도를, 막연한 요청은 임박도·재고 활용도·추가 구매량·조리 부담을 순서대로 평가한다.
 5. 요청이 구체적이면 메뉴명·인분·시간·맛·도구 조건을 구조화하고 사용자가 직접 언급한 식재료를 모두 `requiredIngredients`로 보존한다. 사용자가 별도로 주인공 재료를 지정한 경우에만 핵심 재료 구분을 사용한다.
-6. 비공개 `recipe_catalog.recipes`와 `recipe_catalog.ingredients`의 `normalized_name`, `parent_ingredient`, `search_key`를 조회해 이름·보유 재료 포함 수·필수 조건으로 후보를 정렬한다.
-7. 명시 메뉴는 이름 완전 일치 또는 이름 부분 일치와 재료 일치가 있는 공공 후보 1개를 선택한다. 막연한 요청은 구조화 재료 2개 이상, 매칭 비율 60% 이상을 요구한다.
-8. 공공 후보가 임계값에 미달하면 공유 AI 레시피를 2순위로 조회한다. 이 후보도 미달하면 웹 검색 없이 `gpt-5.6-terra`가 사용자 재고·알레르기·조리도구·시간과 공용 지침으로 생성한다. Luna는 요청 분류에만 사용한다.
-9. DB 변형과 Terra 생성 결과 모두 요청 필수 재료, 핵심 안전 조건, 고위험 조리 단계와 한 끼 요리 완성도를 검증한다. 요청 재료 누락 또는 단순 찍어 먹기·곁들이기 결과는 사용자에게 반환하지 않는다. 최초 Terra 결과가 검증에 실패하면 검증 사유와 누락 재료를 포함한 최종 재작성을 정확히 한 번만 실행하며, 이 재작성도 실패하면 추가 모델 호출 없이 구조화된 실패 상태를 반환한다.
-10. 필수 재료가 없으면 레시피 생성을 멈추고 `구매 후 원래 메뉴`, `현재 재료 기반 대체 메뉴`, 검증된 경우의 `안전한 재료 대체` 분기를 생성한다.
-11. 사용자가 분기를 선택하면 AI가 공공 레시피 후보 또는 Terra 생성 초안을 기반으로 사용량과 단계를 새 표현으로 설계한다. 변경 사항은 `transformation_summary`에 구조화한다.
+6. service-role 전용 `search_recipe_technique_candidates`가 비공개 공공·공유 카탈로그의 구조화 재료와 이름·조리법 점수를 조회한다. 요청 재료 매칭과 전체 재고 매칭을 분리하고 각 원천에서 최대 20개 후보만 반환한다.
+7. 명시 메뉴는 이름·조리법 점수 70 이상과, 요청 재료가 있으면 그중 최소 1개 매칭을 요구한다. 메뉴명이 없는 재료 중심 요청은 요청 재료가 1~2개면 전부, 3개 이상이면 최소 2개이자 60% 이상 포함돼야 한다. 막연한 요청은 재고 2개 이상이면서 후보 재료의 30% 이상이 맞아야 하고 모든 후보는 조리 단계 2개 이상이어야 한다. 결정적 0~100 점수로 공공 후보 1개를 먼저 선택하고 없을 때만 공유 후보 1개를 선택한다.
+8. 선택한 한 건은 `get_recipe_candidate_detail`로 읽어 재료명 최대 12개, 조리 단계 최대 12개, 조리법·팁으로 제한한 `TechniqueReference`로 변환한다. 원본 양과 메타데이터는 제거하며 Terra는 이를 재료 복사 대상이 아닌 조리 순서·가열 방식·시간·양념 구조의 참고 근거로만 사용한다. 적합한 후보가 없으면 웹 검색 없이 AI 단독 생성한다. Luna는 요청 분류에만 사용한다.
+9. 조리 기술 참고와 AI 단독 생성 결과 모두 요청 필수 재료, 핵심 안전 조건, 고위험 조리 단계와 한 끼 요리 완성도를 검증한다. 요청 재료 누락 또는 단순 찍어 먹기·곁들이기 결과는 사용자에게 반환하지 않는다. 최초 Terra 결과가 검증에 실패하면 후보를 다시 조회하지 않고 `TechniqueReference=null`인 AI 단독 최종 재작성을 정확히 한 번만 실행하며, 이 재작성도 실패하면 추가 모델 호출 없이 구조화된 실패 상태를 반환한다.
+10. 사용자가 직접 지정한 식재료가 재고에 없으면 카탈로그 조회와 Terra 호출 전에 service-role 전용 `create_missing_ingredient_confirmation`으로 5분 만료·일회용 티켓을 만들고 확인 응답만 반환한다. `취소`는 추가 서버 요청을 보내지 않는다. `계속 진행`은 원문 해시·소유자와 묶인 티켓을 `consume_missing_ingredient_confirmation`으로 한 번 소비하며 Luna 분류와 일일 AI 횟수 증가를 반복하지 않는다.
+11. 승인된 누락 재료만 `approvedMissingIngredients`로 생성·검증기에 전달해 `requiredPurchase=true`를 허용한다. 승인되지 않은 다른 재고 밖 준비 재료는 구매 0개 검증을 그대로 적용한다. 만료·재사용·다른 메시지 티켓은 모델 호출 전에 거절한다.
    레시피 생성은 공용 `recipe-guidelines` 지침 모듈을 사용하며 조리도구 세척 지시, 내부 차감 규칙 노출, 비조리 작업 또는 1분 이하 작업의 타이머 생성을 금지한다.
    우선순위 계약은 `recipe-priority-policy`, 소비기한 구간·가중치는 `recipe-expiry-policy`에 분리한다. 두 모듈은 서버에서 짧은 instructions 문자열과 구조화된 `expiryTier`·`expiryWeight`로 조립되며 추가 DB 조회나 OpenAI 호출을 만들지 않는다. 경과 lot은 레시피 후보와 검증 재고에서 제외하고 D-0~3은 100, D-4~7은 30, D-8 이상은 0으로 계산한다.
 12. 검증기가 최종 재료와 `allergens.aliases`를 대조한 뒤 재고 초과 사용, 누락 필수 재료, 보유하지 않은 필수 조리도구, 비정상 단위, 시간 불일치와 고위험 조리 안전 조건을 검사한다. 실패한 결과는 사용자에게 제시하지 않는다.
@@ -223,9 +223,11 @@ OCR 원문과 구조화 검수 초안은 영구 테이블에 저장하지 않고
 15. 현재 구현은 `요리 완료`에서 모든 사용량을 수정할 수 있는 미리보기를 제공한다. 조리 중 발화 delta와 12시간 재진입 복구는 후속 설계다.
 16. 완료 확정 후 idempotency key를 사용해 재고 이벤트와 완료 레시피를 하나의 트랜잭션으로 기록한다.
 
-구현 계약(2026-09-13): `search_recipe_candidates`와 `get_recipe_candidate_detail`은 service role만 호출한다. 검색은 구조화 `ingredients` 필드만 사용하고 각 원천에서 최대 20개 후보만 읽는다. 선택한 한 건만 Terra에 전달하며 응답의 `origin`은 모델이 아닌 서버가 지정한다. `complete_recipe_cooking_shared`는 완료·재고 차감·개인 저장 후 요청된 경우에만 `share_completed_ai_recipe`를 같은 트랜잭션에서 실행한다. 공유 함수는 소유자·완료 기록·AI 생성 origin·콘텐츠 구조를 검사하고 사용자 식별자 및 재고 키를 제거한 독립 스냅샷을 멱등하게 만든다. 완료 전 따봉 상태는 클라이언트의 공유 대기값이며 DB 레시피 저장이 아니다.
+구현 계약(2026-10-13): `search_recipe_technique_candidates`와 `get_recipe_candidate_detail`은 service role만 호출한다. 검색은 구조화 `ingredients` 필드만 사용하고 각 원천에서 최대 20개 후보만 읽는다. 선택한 한 건의 제한된 `TechniqueReference`만 Terra에 전달하며 응답의 `origin`은 모델이 아닌 서버가 지정한다. `complete_recipe_cooking_shared`는 완료·재고 차감·개인 저장 후 요청된 경우에만 `share_completed_ai_recipe`를 같은 트랜잭션에서 실행한다. 공유 함수는 소유자·완료 기록·AI 생성 origin·콘텐츠 구조를 검사하고 사용자 식별자 및 재고 키를 제거한 독립 스냅샷을 멱등하게 만든다. 완료 전 따봉 상태는 클라이언트의 공유 대기값이며 DB 레시피 저장이 아니다.
 
-개정 설계(2026-09-14, 구현 전): 구매 필요 품목 수를 출처와 메뉴 이름 점수보다 먼저 평가한다. 공공·공유·Terra 각각에서 구매 0개를 먼저 시도하고, 불가능할 때만 구매 1개 이하를 허용한다. Terra의 필수 재료 제외·재고 대체 결과도 서버가 실제 lot·단위·수량과 대조해 구매 수를 검증한다. 자세한 계약은 `docs/superpowers/specs/2026-09-14-zero-purchase-recipes-storage-aware-shelf-life-design.md`를 따른다.
+개정 설계(2026-10-13): 공공·공유 후보와 Terra 생성 모두 실제 준비 재료의 구매 허용 수를 0개로 고정한다. 사용자 언급 재료는 필수 포함하고 나머지 실제 재료도 서버가 보유 lot·단위·수량과 대조한다. 물·식수는 실제 조리에 필요할 때만 기본 자원으로 허용하고 육수·우유·기름·소스는 재고 검증을 받는다. 재고에 없는 재료는 구조화 `optionalIngredientTip` 한 건 이하로만 반환하며 `ingredients`, 필수 조리 단계와 완료 사용량에서 제외한다. 최초 검증 실패 후 재작성은 다른 후보를 읽지 않고 조리 기술 참고자료를 제거한 AI 단독 생성만 한 번 사용한다. 복구 입력은 요청 재료, 조리 기반 식재료와 보유 조미료로 제한해 관련성과 입력 크기를 함께 관리한다. 2026-09-14 설계의 구매 1개 허용 부분은 이 결정으로 대체한다.
+
+사용자 지정 누락 재료 예외(2026-10-13): 위 구매 0개 원칙은 시스템이 임의로 보탠 재료에 적용한다. 사용자가 직접 말한 식재료가 재고에 없을 때만 확인 팝업을 거쳐 해당 재료를 구매 필요로 허용한다. 확인 티켓은 `private.missing_ingredient_confirmations`에 원문 대신 SHA-256 해시와 구조화 재료명만 5분간 저장하고 단일 소비한다. 초기 확인 요청은 Luna 1회로 끝나며 Terra를 호출하지 않고, 승인 요청은 Luna와 `consume_ai_request`를 건너뛰어 Terra 생성으로 이어진다. 현재 제품에는 유료 냉톡 잔액 원장이 없으므로 실제 금액성 토큰 차감은 아직 없으며, 향후 원장에서는 취소·실패 확인 흐름을 비과금으로 처리한다.
 
 후속 12시간 복구를 구현할 때 클라이언트 재진입 시 서버는 `status=active`이고 `expires_at`이 지나지 않은 소유자 세션만 반환한다. 취소·만료 세션은 재고 이벤트로 승격하지 않는다.
 
@@ -512,14 +514,16 @@ Android 세션은 OS가 보호하는 비밀 저장소를 사용하는 Expo 호�
 
 ### `menu-chat` 영구 관측
 
-- 인증된 요청마다 UUID `request_id`를 만들고 응답의 `x-request-id` 헤더로 반환한다. 지원 문의 시 이 값과 사용자 UUID·발생 시각으로 요청을 찾는다.
-- `observability.ai_request_traces`에는 상태 코드, intent, 최종 후보 출처, 전체 지연과 인증·rate limit·재고·Luna·카탈로그·최초 Terra·검증·재작성 단계별 지연, Luna/Terra 호출 수와 입출력 토큰, 재작성·오류 코드, OpenAI response ID만 한 행으로 저장한다.
+- 인증된 요청마다 UUID `request_id`를 만들고 응답의 `x-request-id` 헤더로 반환한다. 클라이언트는 이 헤더가 완전한 UUID 형식일 때만 안전한 오류 문구의 다음 줄에 동일한 전체 값을 `오류 추적 번호`로 표시한다. 지원 문의 시 이 값과 사용자 UUID·발생 시각으로 요청을 찾는다.
+- `observability.ai_request_traces`에는 상태 코드, intent, 최종 후보 출처, 전체 지연과 인증·rate limit·재고·Luna·카탈로그·최초 Terra·검증·재작성 단계별 지연, Luna/Terra 호출 수와 입출력 토큰, 재작성·오류 코드, OpenAI response ID만 한 행으로 저장한다. 추가 진단 필드는 `initial_failure_code`, `repair_failure_code`, `final_failure_code`, `failure_stage`이며 실패 코드는 최대 64자의 대문자·숫자·밑줄 기계 라벨만 허용한다.
+- `initial_failure_code`는 최초 시도 실패, `repair_failure_code`는 재작성 시도 실패, `final_failure_code`는 실제 마지막 실패를 보존한다. 최초 시도 실패 뒤 재작성에 성공하면 최초 코드만 남기고 `final_failure_code`와 `failure_stage`는 비운다. `failure_stage`의 정확한 허용 목록은 `auth`, `request_parse`, `rate_limit`, `inventory_query`, `intent_model`, `intent_parse`, `catalog_search`, `terra_initial`, `validation_initial`, `terra_repair`, `validation_repair`, `response`, `unknown`이다.
 - 대화 원문, history, 재고 목록, 레시피, 프롬프트, 모델 입출력, 이메일과 API 키는 저장하지 않는다. RPC도 해당 콘텐츠 키를 거절하며 payload를 4KB, 문자열·수치·response ID 개수를 제한한다.
 - 일반 성공 trace는 30일, 오류·재작성 또는 15초 이상 요청은 90일 보존한다. 전날 자료는 `observability.ai_request_daily_metrics`로 집계해 요청·성공·오류·재작성·지연 요청 수, 오류율·재작성률, 평균·P50·P95, 모델 호출 수와 토큰 합계를 보존한다.
 - 첫 요청의 service-role RPC가 advisory lock으로 전날 집계와 만료 trace 정리를 하루 한 번 수행하므로 별도 cron과 Edge Function 호출을 만들지 않는다. 관측 RPC 실패는 사용자 응답을 실패시키지 않는다.
 - 관측 스키마와 테이블은 `public`, `anon`, `authenticated`에 권한을 주지 않는다. 삽입 RPC는 JWT role이 `service_role`인 서버 호출만 허용하며 앱 클라이언트에서 조회·기록할 수 없다.
 - 지연 `total_ms`는 관측 DB 기록 자체를 제외한 업무 경로 시간이다. 관측은 기존 OpenAI 응답의 `usage`와 `id`를 재사용하므로 추가 모델 호출이나 토큰을 발생시키지 않는다.
 - 2026-10-11 `202610110001_ai_request_observability.sql`을 production에 적용하고 `menu-chat` v14를 배포했다. 원격 DB lint는 schema 오류 0건이었고, 두부·대파 스모크 응답 성공 뒤 `observability.ai_request_traces`에 1건이 적재되어 서버 기록 경로를 확인했다. 일별 집계는 다음 날 첫 요청이 maintenance를 수행한 뒤 확인한다.
+- 2026-10-13 `202610110002_ai_error_diagnostics.sql`을 production에 적용했고 로컬·원격 migration 일치와 DB lint 오류 0건을 확인했다. 신규 진단을 기록하는 `menu-chat` Edge Function과 클라이언트 `오류 추적 번호` 표시는 아직 production에 배포하지 않았다.
 
 ## 14. 기술 결정 대기 목록
 
@@ -603,3 +607,7 @@ Android 세션은 OS가 보호하는 비밀 저장소를 사용하는 Expo 호�
 - 채팅 키보드가 표시되는 동안 하단 탭을 숨긴다. 본문 ScrollView는 flex:1 및 keyboardShouldPersistTaps=handled를 사용한다. 다른 검수 Modal의 기존 키보드 처리와 웹 프레임 동작은 유지한다.
 - 재고 카드는 2행과 축소 패딩을 사용하고 수정·삭제 버튼 minHeight=44를 유지한다. 광고는 AppHeader 다음, ScrollView 밖에 둔다. 네이티브 의존성·DB 변경 없이 runtime 1.0.3 OTA로 제공한다.
 - 후속 실기기 캡처에서 입력창 하단이 여전히 가려졌다. 설치된 RN 0.83 Android 코드에서 RootViewUtil/ReactSurfaceView의 viewport offset이 visibleWindowFrame.top을 빼지만 ReactRootView의 keyboard screenY는 화면 좌표를 사용하는 것을 확인했다. Android 비교에는 상단 safeAreaInsets.top을 반영해 좌표 원점을 보정한다. 고정 픽셀 오프셋은 추가하지 않는다. 일반 전체 화면 기기의 동작은 사용자 재검증이 필요하며 멀티윈도우 좌표는 실기기 검증하지 않았다.
+
+### 2026-10-13 지역 지연 비교
+
+서울/싱가포르 함수×DB 네 조합의 합성 RPC 왕복을 측정했다. 서울 함수 기준 최대 8회 경로 P50은 싱가포르 DB 840ms, 서울 DB 250ms. AI·실제 Auth/RLS는 제외한 비교이며 운영 지역은 변경하지 않았다. 테스트 객체는 양쪽 모두 삭제·부재 확인했다. 방법과 원시 결과는 [지역 지연 측정](REGION_LATENCY_BENCHMARK.md)에 기록했다.

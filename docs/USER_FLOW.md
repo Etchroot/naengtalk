@@ -135,11 +135,15 @@ flowchart TD
   OverdrawModal --> OverdrawConfirmBtn["확인"] --> InventoryMutation
   InventoryProposal -- "재고에 없는 식품 소비" --> IgnoreUnknownConsume["변경 없이 무시"] --> ChatScreen
 
-  ChatClassify -- "메뉴 상담" --> PublicSearch["1순위 공공 레시피"] --> PublicGate{"정확도·재고 기준 통과?"}
+  ChatClassify -- "메뉴 상담" --> MissingRequestedGate{"직접 지정한 재료가 재고에 없음?"}
+  MissingRequestedGate -- "예" --> MissingConfirm["누락 재료 계속 진행 확인"]
+  MissingConfirm --> MissingCancelBtn["취소"] --> ChatScreen
+  MissingConfirm --> MissingContinueBtn["계속 진행"] --> ConfirmationTicket["5분·일회용 티켓 소비"] --> PublicSearch
+  MissingRequestedGate -- "아니요" --> PublicSearch["1순위 공공 레시피"] --> PublicGate{"정확도·재고 기준 통과?"}
   PublicGate -- "예" --> RecipeAdapt["재고·알레르기·도구 맞춤 조정"]
   PublicGate -- "아니요" --> SharedSearch["2순위 공유 레시피"] --> SharedGate{"정확도·재고 기준 통과?"}
   SharedGate -- "예" --> RecipeAdapt
-  SharedGate -- "아니요" --> TerraGenerate["3순위 Terra 생성"] --> RecipeValidate["구매 0개 우선·최대 1개·안전 검증"]
+  SharedGate -- "아니요" --> TerraGenerate["3순위 Terra 생성"] --> RecipeValidate["실제 구매 0개·선택 팁 최대 1개·안전 검증"]
   RecipeAdapt --> RecipeValidate
   RecipeValidate -- "통과" --> RecipeProposal["레시피 제안"] --> ChatScreen
   RecipeValidate -- "실패" --> RecipeRetry["조건을 좁혀 1회 재작성"] --> RecipeValidate
@@ -195,6 +199,7 @@ flowchart TD
 | --- | --- | --- |
 | 구매내역/직접 입력 등록 | 검수 행의 이름·수량·보관·날짜 확인 후 `등록` | 원격 재고 lot과 이벤트를 멱등 저장 |
 | 채팅 재고 변경 | 편집 가능한 변경안에서 `승인`; 초과 소비는 전량 소비를 한 번 더 확인 | 사용자 소유 lot만 원자적으로 변경 |
+| 재고에 없는 요청 재료 | 누락 재료 팝업에서 `취소` 또는 `계속 진행` | 취소는 추가 호출 없음; 확인은 승인한 재료만 구매 필요로 허용하는 일회용 티켓 소비 |
 | 요리 완료 | 재료별 사용량 수정 후 `사용량 확정`; 초과 소비 재확인 | 완료 레시피 저장과 재고 차감을 같은 트랜잭션으로 처리 |
 | AI 레시피 공유 | 좋아요 팝업 `확인` 후 실제로 `요리 완료` | 개인 완료 레시피가 존재할 때만 익명 공유 사본 생성 |
 | 샘플 초기화 | 설정의 명시적 버튼 | 게스트 재고 30종과 조리도구 16종을 초기 상태로 복원 |
