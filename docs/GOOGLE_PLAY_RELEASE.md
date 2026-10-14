@@ -4,6 +4,8 @@
 
 ## 확정된 첫 출시 기준
 
+2026-10-11 사용자 보고: Play 개인 계정 신원 인증·Android 기기 인증·앱 생성 완료. 로컬 빌드 패키지는 `com.naengtalk.app`이다. 첫 AAB 업로드 성공과 Play 패키지 등록 확정, 테스트 트랙 배포는 아직 확인하지 않았다. AdMob production 설정·정책 페이지·실제 삭제 검증 준비를 이어간다.
+
 - `main`의 시작 커밋 `fe0f8edbfffea4a923bc7ba64f805850b9357cb2`에서 `codex/google-play-launch` 브랜치를 분리한다. 복구 기준은 이 커밋이며 `main`에 출시 작업을 직접 반영하지 않는다.
 - 첫 공개 국가는 한국·미국·캐나다·호주, 대상은 18세 이상이다. 앱 기능·정책·스토어 설명은 한국어와 영어를 지원한다.
 - Android 공개판은 Google 로그인만 제공하고, 심사용 웹의 게스트 진입은 유지한다.
@@ -24,7 +26,7 @@
 - Google Cloud에서 OAuth 동의 화면과 웹 OAuth 클라이언트를 준비하고 Supabase Auth의 Google 제공자를 활성화한다. Google Cloud 승인 리디렉션에는 Supabase가 표시하는 콜백 주소를 넣고, Supabase URL 허용 목록에는 웹 루트·`/delete-account`·앱의 `naengtalk://` 콜백을 등록한다. 실제 EAS APK의 딥링크 복귀와 웹의 삭제 페이지 복귀를 각각 검증한다.
 - AdMob 계정과 Android 앱·배너 광고 단위를 만든다. `preview` APK에는 Google 공식 테스트 앱 ID·배너 단위 ID만 사용한다. `production` AAB 전에는 EAS 빌드 환경에 `ADMOB_ANDROID_APP_ID`와 `EXPO_PUBLIC_ADMOB_BANNER_UNIT_ID`를 등록한다. 앱 ID와 광고 단위 ID는 서로 다른 값이며, 앱 ID는 네이티브 빌드 구성에 들어간다. 유효한 실제 ID가 없거나 테스트 ID를 쓰면 프로덕션 빌드 구성이 중단된다. 계정에서 발급받은 값은 채팅이나 문서에 붙여 넣지 않는다. [Google 테스트 광고](https://developers.google.com/admob/android/test-ads)
 - 개인 계정 경로의 공개 신원·연락처·주소 표시를 확인하고 테스터 12명 이상을 확보한다. 조직 계정으로 방향을 바꿀 때만 D-U-N-S, 조직 웹사이트, 사업자 정보 일치를 준비한다.
-- 2026-10-10 사용자 확정: 공개 개발자 이름 **AloeTurtle**, 공개 지원 이메일 **jjamyeong@gmail.com**. 개인 계정 신원 인증 승인 완료(사용자 보고). Android 기기 인증은 별도 확인 필요. 나머지 법적 운영자·공개 연락처·주소 및 정책 상세는 미확정이므로 개인정보처리방침·약관·Play 등록정보의 게시는 완료로 표시하지 않는다.
+- 2026-10-10 사용자 확정: 공개 개발자 이름 **AloeTurtle**, 공개 지원 이메일 **jjamyeong@gmail.com**. 개인 계정 신원 인증 승인 완료(사용자 보고). Android 기기 인증 완료(2026-10-11 사용자 보고). 나머지 법적 운영자·공개 연락처·주소 및 정책 상세는 미확정이므로 개인정보처리방침·약관·Play 등록정보의 게시는 완료로 표시하지 않는다.
 - D-U-N-S 기본 신청·회사 정보 갱신은 무료이며 유료 신속 처리·부가 서비스는 선택이다. 상호 변경은 먼저 사업자등록을 정정하고 D&B 프로필과 Google 결제 프로필의 법적 명칭·주소를 맞춘다. 동일 사업체의 상호 변경만으로 번호를 재발급받는다고 단정하지 않는다. [D&B 비용·갱신](https://www.dnb.com/en-us/smb/duns/get-a-duns.html), [Google 신원 정보 변경](https://support.google.com/googleplay/android-developer/answer/16260648)
 
 ### 한국 사업자·수익 신고 확인

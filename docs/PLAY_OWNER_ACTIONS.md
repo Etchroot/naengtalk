@@ -3,8 +3,9 @@
 ## 2026-10-10 확인된 계정 정보
 
 - 공개 개발자 이름: **AloeTurtle**. 공개 사용자 문의 이메일: **jjamyeong@gmail.com**. 사용자가 공개 용도로 제공한 값만 기록했다.
-- 개인 계정 신원 인증: **승인 완료**(사용자 보고). Android 기기 인증·공개 전화번호 인증·앱 생성 완료 여부는 별도로 확인한다.
+- 개인 계정 신원 인증: **승인 완료**(2026-10-10 사용자 보고). Android 기기 인증: **완료**(2026-10-11 사용자 보고). 공개 전화번호 인증·앱 생성 완료 여부는 별도로 확인한다.
 - 공개 개발자 이름과 문의 이메일은 아래 미정 항목에서 확정됐다. 법적 이름·주소·개인정보 권리 행사 담당자 등 다른 값은 대신 추정하지 않는다. 정책 페이지 게시와 스토어 등록은 아직 완료하지 않았다.
+- 2026-10-11 사용자 보고: Play Console 앱 생성 완료. 현재 빌드 패키지는 `com.naengtalk.app`. AAB 업로드 성공·패키지 등록 확정·테스트 배포는 아직 별도 확인이 필요하다.
 
 확인일: 2026-10-03. 대상은 **새 개인 개발자 계정**, 첫 공개 국가 한국·미국·캐나다·호주, 만 18세 이상, 무료 앱과 AdMob 배너다. 메뉴 이름은 Play Console 개편 또는 계정 상태에 따라 달라질 수 있으므로 연결된 공식 안내와 콘솔의 실제 필수 작업을 우선한다. 이 문서는 계정 소유자가 자기 계정에서 수행할 순서다. 앱 구현·빌드·배포 상태는 [출시 게이트](GOOGLE_PLAY_RELEASE.md)와 별도로 확인한다.
 
@@ -24,6 +25,8 @@
 3. `냉톡` 앱을 만들 때 무료 앱, 기본 언어, 앱 이름을 실제 제품과 맞춘다. Android 패키지명은 빌드팀과 확인한 후 첫 AAB 등록 시 확정한다. 후보 `com.naengtalk.app`이 사용할 수 없으면 `com.naengtalk.mobile` 후보를 협의한다. 패키지명은 등록 후 쉽게 바꿀 수 없는 식별자다. [앱 만들기와 등록정보](https://support.google.com/googleplay/android-developer/answer/9859152)
 
 **팀에 알려줄 상태:** 기기 인증 완료 여부, 앱 생성 여부, 확정된 **패키지명**만 전달한다. 패키지명은 공개 식별자다.
+
+2026-10-11 다음 직접 작업: **모든 앱 > 앱 만들기**에서 앱 이름 `냉톡`, 기본 언어 `한국어(ko-KR)`, 유형 `앱`, 가격 `무료`, 문의 이메일 항목이 표시되면 `jjamyeong@gmail.com`을 사용한다. 콘솔의 선언·약관을 본인이 읽고 확인한 뒤 앱을 만든다. 앱 생성은 공개 출시와 별도다. 현재 로컬 빌드 패키지는 `com.naengtalk.app`이며 Play에서 사용 가능 여부는 첫 AAB 업로드 시 확인한다. 앱 생성 완료를 보고한 다음 정책 URL·등록정보·테스트 AAB 준비 상태를 함께 점검한다.
 
 ## 2. Google 로그인과 Supabase 설정 — 앱의 콜백 경로 확정 후
 
@@ -53,7 +56,7 @@
 공식 절차: [Supabase Google 로그인](https://supabase.com/docs/guides/auth/social-login/auth-google), [모바일 복귀 URL](https://supabase.com/docs/guides/auth/native-mobile-deep-linking). 설정을 마치면 `Google 공급자 활성화·앱 복귀 URL 등록 완료`라고만 알려준다.
 
 - [x] 2026-10-03 사용자 등록 및 EAS 이름별 존재·빌드 로드 확인. Expo 프로젝트의 **Project settings > Environment variables**에서 `preview` 환경에 `EXPO_PUBLIC_SUPABASE_URL`, `EXPO_PUBLIC_SUPABASE_ANON_KEY`를 등록한다. 이 둘은 앱 번들에서 읽는 공개 설정이다. URL과 공개 키를 서로 다른 Supabase 프로젝트에서 섞지 않는다. `EXPO_PUBLIC_` 값은 최종 사용자에게 보일 수 있으므로 **service role, Google OAuth client secret, OpenAI API 키**를 넣지 않는다. 현재 앱의 preview 프로필은 EAS `preview` 환경을 사용한다. [EAS 변수 관리](https://docs.expo.dev/eas/environment-variables/manage/), [EAS 빌드 변수 사용](https://docs.expo.dev/eas/environment-variables/usage/)
-- [ ] `preview` APK는 공식 AdMob 테스트 앱 ID/배너 단위 ID를 사용하도록 빌드팀이 확인한다. production AAB 전에만 `production` 환경에 실제 `ADMOB_ANDROID_APP_ID`와 `EXPO_PUBLIC_ADMOB_BANNER_UNIT_ID`를 각각 등록한다. 앱 ID와 광고 단위 ID는 다르다. 광고 단위 ID는 앱에서 읽을 수 있는 공개 식별자이고, 값 전달은 EAS 설정에서 직접 한다. [Google 테스트 광고](https://developers.google.com/admob/android/test-ads), [EAS 변수 관리](https://docs.expo.dev/eas/environment-variables/manage/)
+- [x] 사용자가 2026-10-11 실제 `ADMOB_ANDROID_APP_ID`와 `EXPO_PUBLIC_ADMOB_BANNER_UNIT_ID` 두 항목의 Expo 등록 완료를 보고했다. 원격 값 검증과 production AAB 빌드는 아직 진행하지 않았다. `preview` APK는 공식 테스트 ID를 유지한다. 앱 ID와 광고 단위 ID는 다르며 값은 EAS 설정에서 직접 관리한다. [Google 테스트 광고](https://developers.google.com/admob/android/test-ads), [EAS 변수 관리](https://docs.expo.dev/eas/environment-variables/manage/)
 
 **팀에 알려줄 상태:** 각 변수의 **이름별 등록 여부**와 대상 환경 `preview/production`만 전한다. 값, EAS 변수 화면 캡처, Supabase 키를 보내지 않는다.
 
