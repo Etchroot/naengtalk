@@ -1,0 +1,20 @@
+/* Preserve the approved artwork while removing raster seams and stretching. */
+.hero-art{object-fit:cover;object-position:center;mix-blend-mode:multiply}
+@media(min-width:701px){.hero-art{mask-image:linear-gradient(to right,transparent,#000 9%,#000 96%,transparent)}}
+.step-art{mix-blend-mode:multiply}
+.closing .closing-art{object-fit:contain;object-position:right bottom;mix-blend-mode:multiply}
+.steps:before{display:none}
+.flow-line{position:absolute;inset:0;width:100%;height:100%;z-index:-1;pointer-events:none}
+.guide-overview,.guide-row{display:grid;grid-template-columns:minmax(200px,300px) 1fr;gap:64px;align-items:center;margin:56px 0;padding:32px 0;border-bottom:1px solid #dbe5d7}
+.guide-shot{position:relative;width:100%;aspect-ratio:296/676;overflow:hidden;border-radius:9% / 4%;box-shadow:0 10px 35px #163c3015;background:#fff}
+.guide-shot img{position:absolute;display:block;width:432.432%;max-width:none;height:auto;left:-166.216%;top:-3.254%}
+.guide-shot-register{aspect-ratio:438/344;border-radius:5.5% / 7%}
+.guide-shot-register img{width:292.237%;left:-96.119%;top:-54.651%}
+.guide-shot-options{aspect-ratio:438/418;border-radius:5.5% / 5.8%}
+.guide-shot-options img{width:292.237%;left:-96.119%;top:-36.124%}
+.guide-photo-detail{margin:16px 0}
+.guide-photo-detail summary{cursor:pointer;font-weight:700}
+.guide-photo-detail .guide-shot{max-width:300px;margin:14px 0}
+.guide-row h2,.guide-overview h2{font-size:28px;letter-spacing:-.04em}
+.guide-row p{color:#344e3f;line-height:1.85;word-break:keep-all}
+@media(max-width:700px){.header nav{gap:13px;font-size:13px}.hero-art{object-fit:contain}.flow-line{display:none}.guide-row,.guide-overview{grid-template-columns:1fr;gap:28px;margin:30px 0;padding:20px 0}.guide-shot{width:min(100%,280px);margin:auto}.guide-row h2{font-size:25px}.mail{font-size:clamp(16px,4.7vw,20px)}}
