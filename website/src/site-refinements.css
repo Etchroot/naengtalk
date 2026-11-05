@@ -1,7 +1,7 @@
 /* Preserve the approved artwork while removing raster seams and stretching. */
 .hero-art{object-fit:cover;object-position:center;mix-blend-mode:multiply}
 @media(min-width:701px){.hero-art{mask-image:linear-gradient(to right,transparent,#000 9%,#000 96%,transparent)}}
-.step-art{mix-blend-mode:multiply}
+.step-art{mix-blend-mode:normal}
 .closing .closing-art{object-fit:contain;object-position:right bottom;mix-blend-mode:multiply}
 .steps:before{display:none}
 .flow-line{position:absolute;inset:0;width:100%;height:100%;z-index:-1;pointer-events:none}
